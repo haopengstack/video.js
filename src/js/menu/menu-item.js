@@ -26,13 +26,17 @@ class MenuItem extends ClickableComponent {
     super(player, options);
 
     this.selectable = options.selectable;
+    this.isSelected_ = options.selected || false;
+    this.multiSelectable = options.multiSelectable;
 
-    this.selected(options.selected);
+    this.selected(this.isSelected_);
 
     if (this.selectable) {
-      // TODO: May need to be either menuitemcheckbox or menuitemradio,
-      //       and may need logical grouping of menu items.
-      this.el_.setAttribute('role', 'menuitemcheckbox');
+      if (this.multiSelectable) {
+        this.el_.setAttribute('role', 'menuitemcheckbox');
+      } else {
+        this.el_.setAttribute('role', 'menuitemradio');
+      }
     } else {
       this.el_.setAttribute('role', 'menuitem');
     }
@@ -54,15 +58,18 @@ class MenuItem extends ClickableComponent {
    *         The element that gets created.
    */
   createEl(type, props, attrs) {
+    // The control is textual, not just an icon
+    this.nonIconControl = true;
+
     return super.createEl('li', assign({
       className: 'vjs-menu-item',
-      innerHTML: this.localize(this.options_.label),
+      innerHTML: `<span class="vjs-menu-item-text">${this.localize(this.options_.label)}</span>`,
       tabIndex: -1
     }, props), attrs);
   }
 
   /**
-   * Any click on a `MenuItem` puts int into the selected state.
+   * Any click on a `MenuItem` puts it into the selected state.
    * See {@link ClickableComponent#handleClick} for instances where this is called.
    *
    * @param {EventTarget~Event} event
@@ -90,12 +97,13 @@ class MenuItem extends ClickableComponent {
         // aria-checked isn't fully supported by browsers/screen readers,
         // so indicate selected state to screen reader in the control text.
         this.controlText(', selected');
+        this.isSelected_ = true;
       } else {
         this.removeClass('vjs-selected');
         this.el_.setAttribute('aria-checked', 'false');
         // Indicate un-selected state to screen reader
-        // Note that a space clears out the selected state text
-        this.controlText(' ');
+        this.controlText('');
+        this.isSelected_ = false;
       }
     }
   }

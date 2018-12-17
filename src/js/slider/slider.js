@@ -4,6 +4,7 @@
 import Component from '../component.js';
 import * as Dom from '../utils/dom.js';
 import {assign} from '../utils/obj';
+import {IS_CHROME} from '../utils/browser.js';
 
 /**
  * The base functionality for a slider. Can be vertical or horizontal.
@@ -13,7 +14,7 @@ import {assign} from '../utils/obj';
  */
 class Slider extends Component {
 
-/**
+  /**
  * Create an instance of this class
  *
  * @param {Player} player
@@ -31,18 +32,76 @@ class Slider extends Component {
     // Set a horizontal or vertical class on the slider depending on the slider type
     this.vertical(!!this.options_.vertical);
 
+    this.enable();
+  }
+
+  /**
+   * Are controls are currently enabled for this slider or not.
+   *
+   * @return {boolean}
+   *         true if controls are enabled, false otherwise
+   */
+  enabled() {
+    return this.enabled_;
+  }
+
+  /**
+   * Enable controls for this slider if they are disabled
+   */
+  enable() {
+    if (this.enabled()) {
+      return;
+    }
+
     this.on('mousedown', this.handleMouseDown);
     this.on('touchstart', this.handleMouseDown);
     this.on('focus', this.handleFocus);
     this.on('blur', this.handleBlur);
     this.on('click', this.handleClick);
 
-    this.on(player, 'controlsvisible', this.update);
-    this.on(player, this.playerEvent, this.update);
+    this.on(this.player_, 'controlsvisible', this.update);
+
+    if (this.playerEvent) {
+      this.on(this.player_, this.playerEvent, this.update);
+    }
+
+    this.removeClass('disabled');
+    this.setAttribute('tabindex', 0);
+
+    this.enabled_ = true;
   }
 
   /**
-   * Create the `Button`s DOM element.
+   * Disable controls for this slider if they are enabled
+   */
+  disable() {
+    if (!this.enabled()) {
+      return;
+    }
+    const doc = this.bar.el_.ownerDocument;
+
+    this.off('mousedown', this.handleMouseDown);
+    this.off('touchstart', this.handleMouseDown);
+    this.off('focus', this.handleFocus);
+    this.off('blur', this.handleBlur);
+    this.off('click', this.handleClick);
+    this.off(this.player_, 'controlsvisible', this.update);
+    this.off(doc, 'mousemove', this.handleMouseMove);
+    this.off(doc, 'mouseup', this.handleMouseUp);
+    this.off(doc, 'touchmove', this.handleMouseMove);
+    this.off(doc, 'touchend', this.handleMouseUp);
+    this.removeAttribute('tabindex');
+
+    this.addClass('disabled');
+
+    if (this.playerEvent) {
+      this.off(this.player_, this.playerEvent, this.update);
+    }
+    this.enabled_ = false;
+  }
+
+  /**
+   * Create the `Slider`s DOM element.
    *
    * @param {string} type
    *        Type of element to create.
@@ -87,7 +146,16 @@ class Slider extends Component {
   handleMouseDown(event) {
     const doc = this.bar.el_.ownerDocument;
 
-    event.preventDefault();
+    if (event.type === 'mousedown') {
+      event.preventDefault();
+    }
+    // Do not call preventDefault() on touchstart in Chrome
+    // to avoid console warnings. Use a 'touch-action: none' style
+    // instead to prevent unintented scrolling.
+    // https://developers.google.com/web/updates/2017/01/scrolling-intervention
+    if (event.type === 'touchstart' && !IS_CHROME) {
+      event.preventDefault();
+    }
     Dom.blockTextSelection();
 
     this.addClass('vjs-sliding');
@@ -156,16 +224,23 @@ class Slider extends Component {
 
   /**
    * Update the progress bar of the `Slider`.
+   *
+   * @return {number}
+   *          The percentage of progress the progress bar represents as a
+   *          number from 0 to 1.
    */
   update() {
-    // In VolumeBar init we have a setTimeout for update that pops and update to the end of the
-    // execution stack. The player is destroyed before then update will cause an error
+
+    // In VolumeBar init we have a setTimeout for update that pops and update
+    // to the end of the execution stack. The player is destroyed before then
+    // update will cause an error
     if (!this.el_) {
       return;
     }
 
-    // If scrubbing, we could use a cached value to make the handle keep up with the user's mouse.
-    // On HTML5 browsers scrubbing is really smooth, but some flash players are slow, so we might want to utilize this later.
+    // If scrubbing, we could use a cached value to make the handle keep up
+    // with the user's mouse. On HTML5 browsers scrubbing is really smooth, but
+    // some flash players are slow, so we might want to utilize this later.
     // var progress =  (this.player_.scrubbing()) ? this.player_.getCache().currentTime / this.player_.duration() : this.player_.currentTime() / this.player_.duration();
     let progress = this.getPercent();
     const bar = this.bar;
@@ -185,13 +260,16 @@ class Slider extends Component {
 
     // Convert to a percentage for setting
     const percentage = (progress * 100).toFixed(2) + '%';
+    const style = bar.el().style;
 
     // Set the new bar width or height
     if (this.vertical()) {
-      bar.el().style.height = percentage;
+      style.height = percentage;
     } else {
-      bar.el().style.width = percentage;
+      style.width = percentage;
     }
+
+    return progress;
   }
 
   /**
@@ -202,8 +280,8 @@ class Slider extends Component {
    *
    * @return {number}
    *         The current position of the Slider.
-   *         - postition.x for vertical `Slider`s
-   *         - postition.y for horizontal `Slider`s
+   *         - position.x for vertical `Slider`s
+   *         - position.y for horizontal `Slider`s
    */
   calculateDistance(event) {
     const position = Dom.getPointerPosition(this.el_, event);
@@ -281,10 +359,9 @@ class Slider extends Component {
    *        - true if slider is vertical,
    *        - false is horizontal
    *
-   * @return {boolean|Slider}
+   * @return {boolean}
    *         - true if slider is vertical, and getting
-   *         - false is horizontal, and getting
-   *         - a reference to this object when setting
+   *         - false if the slider is horizontal, and getting
    */
   vertical(bool) {
     if (bool === undefined) {
@@ -298,8 +375,6 @@ class Slider extends Component {
     } else {
       this.addClass('vjs-slider-horizontal');
     }
-
-    return this;
   }
 }
 

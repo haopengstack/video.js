@@ -1,8 +1,6 @@
 /**
  * @file track.js
  */
-import * as browser from '../utils/browser.js';
-import document from 'global/document';
 import * as Guid from '../utils/guid.js';
 import EventTarget from '../event-target';
 
@@ -41,17 +39,6 @@ class Track extends EventTarget {
   constructor(options = {}) {
     super();
 
-    let track = this; // eslint-disable-line
-
-    if (browser.IS_IE8) {
-      track = document.createElement('custom');
-      for (const prop in Track.prototype) {
-        if (prop !== 'constructor') {
-          track[prop] = Track.prototype[prop];
-        }
-      }
-    }
-
     const trackProps = {
       id: options.id || 'vjs_track_' + Guid.newGUID(),
       kind: options.kind || '',
@@ -60,44 +47,50 @@ class Track extends EventTarget {
     };
 
     /**
+     * @memberof Track
      * @member {string} id
      *         The id of this track. Cannot be changed after creation.
+     * @instance
      *
      * @readonly
      */
 
     /**
+     * @memberof Track
      * @member {string} kind
      *         The kind of track that this is. Cannot be changed after creation.
+     * @instance
      *
      * @readonly
      */
 
     /**
+     * @memberof Track
      * @member {string} label
      *         The label of this track. Cannot be changed after creation.
+     * @instance
      *
      * @readonly
      */
 
     /**
+     * @memberof Track
      * @member {string} language
      *         The two letter language code for this track. Cannot be changed after
      *         creation.
+     * @instance
      *
      * @readonly
      */
 
     for (const key in trackProps) {
-      Object.defineProperty(track, key, {
+      Object.defineProperty(this, key, {
         get() {
           return trackProps[key];
         },
         set() {}
       });
     }
-
-    return track;
   }
 }
 

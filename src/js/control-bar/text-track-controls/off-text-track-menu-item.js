@@ -26,16 +26,27 @@ class OffTextTrackMenuItem extends TextTrackMenuItem {
     options.track = {
       player,
       kind: options.kind,
-      label: options.kind + ' off',
+      kinds: options.kinds,
       default: false,
       mode: 'disabled'
     };
 
+    if (!options.kinds) {
+      options.kinds = [options.kind];
+    }
+
+    if (options.label) {
+      options.track.label = options.label;
+    } else {
+      options.track.label = options.kinds.join(' and ') + ' off';
+    }
+
     // MenuItem is selectable
     options.selectable = true;
+    // MenuItem is NOT multiSelectable (i.e. only one can be marked "selected" at a time)
+    options.multiSelectable = false;
 
     super(player, options);
-    this.selected(true);
   }
 
   /**
@@ -46,18 +57,42 @@ class OffTextTrackMenuItem extends TextTrackMenuItem {
    */
   handleTracksChange(event) {
     const tracks = this.player().textTracks();
-    let selected = true;
+    let shouldBeSelected = true;
 
     for (let i = 0, l = tracks.length; i < l; i++) {
       const track = tracks[i];
 
-      if (track.kind === this.track.kind && track.mode === 'showing') {
-        selected = false;
+      if ((this.options_.kinds.indexOf(track.kind) > -1) && track.mode === 'showing') {
+        shouldBeSelected = false;
         break;
       }
     }
 
-    this.selected(selected);
+    // Prevent redundant selected() calls because they may cause
+    // screen readers to read the appended control text unnecessarily
+    if (shouldBeSelected !== this.isSelected_) {
+      this.selected(shouldBeSelected);
+    }
+  }
+
+  handleSelectedLanguageChange(event) {
+    const tracks = this.player().textTracks();
+    let allHidden = true;
+
+    for (let i = 0, l = tracks.length; i < l; i++) {
+      const track = tracks[i];
+
+      if ((['captions', 'descriptions', 'subtitles'].indexOf(track.kind) > -1) && track.mode === 'showing') {
+        allHidden = false;
+        break;
+      }
+    }
+
+    if (allHidden) {
+      this.player_.cache_.selectedLanguage = {
+        enabled: false
+      };
+    }
   }
 
 }

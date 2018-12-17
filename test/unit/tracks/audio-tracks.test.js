@@ -3,7 +3,7 @@ import Html5 from '../../../src/js/tech/html5.js';
 import TestHelpers from '../test-helpers.js';
 import sinon from 'sinon';
 
-QUnit.module('Tracks', {
+QUnit.module('Audio Tracks', {
   beforeEach(assert) {
     this.clock = sinon.useFakeTimers();
   },
@@ -33,6 +33,7 @@ QUnit.test('listen to remove and add track events in native audio tracks', funct
 
   Html5.prototype.audioTracks = function() {
     return {
+      removeEventListener() {},
       addEventListener(type, handler) {
         events[type] = true;
       }
@@ -72,6 +73,7 @@ QUnit.test('listen to remove and add track events in native audio tracks', funct
 
   Html5.TEST_VID = oldTestVid;
   Html5.prototype.audioTracks = oldAudioTracks;
+  html.dispose();
 });
 
 QUnit.test('html5 tech supports native audio tracks if the video supports it', function(assert) {

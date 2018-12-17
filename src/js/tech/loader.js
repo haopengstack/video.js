@@ -4,6 +4,7 @@
 import Component from '../component.js';
 import Tech from './tech.js';
 import toTitleCase from '../utils/to-title-case.js';
+import mergeOptions from '../utils/merge-options.js';
 
 /**
  * The `MediaLoader` is the `Component` that decides which playback technology to load
@@ -20,13 +21,16 @@ class MediaLoader extends Component {
    *        The `Player` that this class should attach to.
    *
    * @param {Object} [options]
-   *        The key/value stroe of player options.
+   *        The key/value store of player options.
    *
    * @param {Component~ReadyCallback} [ready]
    *        The function that is run when this component is ready.
    */
   constructor(player, options, ready) {
-    super(player, options, ready);
+    // MediaLoader has no element
+    const options_ = mergeOptions({createEl: false}, options);
+
+    super(player, options_, ready);
 
     // If there are no sources when the player is initialized,
     // load the first supported playback technology.

@@ -2,6 +2,7 @@
  * @file menu.js
  */
 import Component from '../component.js';
+import document from 'global/document';
 import * as Dom from '../utils/dom.js';
 import * as Fn from '../utils/fn.js';
 import * as Events from '../utils/events.js';
@@ -27,6 +28,10 @@ class Menu extends Component {
   constructor(player, options) {
     super(player, options);
 
+    if (options) {
+      this.menuButton_ = options.menuButton;
+    }
+
     this.focusedChild_ = -1;
 
     this.on('keydown', this.handleKeyPress);
@@ -41,9 +46,18 @@ class Menu extends Component {
    */
   addItem(component) {
     this.addChild(component);
-    component.on('click', Fn.bind(this, function(event) {
-      this.unlockShowing();
-      // TODO: Need to set keyboard focus back to the menuButton
+    component.on('blur', Fn.bind(this, this.handleBlur));
+    component.on(['tap', 'click'], Fn.bind(this, function(event) {
+      // Unpress the associated MenuButton, and move focus back to it
+      if (this.menuButton_) {
+        this.menuButton_.unpressButton();
+
+        // don't focus menu button if item is a caption settings item
+        // because focus will move elsewhere
+        if (component.name() !== 'CaptionSettingsMenuItem') {
+          this.menuButton_.focus();
+        }
+      }
     }));
   }
 
@@ -67,7 +81,6 @@ class Menu extends Component {
       className: 'vjs-menu'
     });
 
-    el.setAttribute('role', 'presentation');
     el.appendChild(this.contentEl_);
 
     // Prevent clicks from bubbling up. Needed for Menu Buttons,
@@ -78,6 +91,35 @@ class Menu extends Component {
     });
 
     return el;
+  }
+
+  dispose() {
+    this.contentEl_ = null;
+
+    super.dispose();
+  }
+
+  /**
+   * Called when a `MenuItem` loses focus.
+   *
+   * @param {EventTarget~Event} event
+   *        The `blur` event that caused this function to be called.
+   *
+   * @listens blur
+   */
+  handleBlur(event) {
+    const relatedTarget = event.relatedTarget || document.activeElement;
+
+    // Close menu popup when a user clicks outside the menu
+    if (!this.children().some((element) => {
+      return element.el() === relatedTarget;
+    })) {
+      const btn = this.menuButton_;
+
+      if (btn && btn.buttonPressed_ && relatedTarget !== btn.el().firstChild) {
+        btn.unpressButton();
+      }
+    }
   }
 
   /**

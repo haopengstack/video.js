@@ -44,12 +44,18 @@ class PlaybackRateMenuButton extends MenuButton {
 
     this.labelEl_ = Dom.createEl('div', {
       className: 'vjs-playback-rate-value',
-      innerHTML: 1.0
+      innerHTML: '1x'
     });
 
     el.appendChild(this.labelEl_);
 
     return el;
+  }
+
+  dispose() {
+    this.labelEl_ = null;
+
+    super.dispose();
   }
 
   /**
@@ -60,6 +66,10 @@ class PlaybackRateMenuButton extends MenuButton {
    */
   buildCSSClass() {
     return `vjs-playback-rate ${super.buildCSSClass()}`;
+  }
+
+  buildWrapperCSSClass() {
+    return `vjs-playback-rate ${super.buildWrapperCSSClass()}`;
   }
 
   /**
@@ -74,9 +84,7 @@ class PlaybackRateMenuButton extends MenuButton {
 
     if (rates) {
       for (let i = rates.length - 1; i >= 0; i--) {
-        menu.addChild(
-          new PlaybackRateMenuItem(this.player(), {rate: rates[i] + 'x'})
-        );
+        menu.addChild(new PlaybackRateMenuItem(this.player(), {rate: rates[i] + 'x'}));
       }
     }
 

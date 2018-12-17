@@ -3,19 +3,19 @@ import ChaptersButton from '../../../src/js/control-bar/text-track-controls/chap
 import DescriptionsButton from '../../../src/js/control-bar/text-track-controls/descriptions-button.js';
 import SubtitlesButton from '../../../src/js/control-bar/text-track-controls/subtitles-button.js';
 import CaptionsButton from '../../../src/js/control-bar/text-track-controls/captions-button.js';
+import SubsCapsButton from '../../../src/js/control-bar/text-track-controls/subs-caps-button.js';
 
 import TextTrack from '../../../src/js/tracks/text-track.js';
 import TextTrackDisplay from '../../../src/js/tracks/text-track-display.js';
 import Html5 from '../../../src/js/tech/html5.js';
 import Tech from '../../../src/js/tech/tech.js';
-import Component from '../../../src/js/component.js';
 
 import * as browser from '../../../src/js/utils/browser.js';
 import TestHelpers from '../test-helpers.js';
 import document from 'global/document';
 import sinon from 'sinon';
 
-QUnit.module('Tracks', {
+QUnit.module('Text Tracks', {
   beforeEach(assert) {
     this.clock = sinon.useFakeTimers();
   },
@@ -82,6 +82,7 @@ QUnit.test('listen to remove and add track events in native text tracks', functi
 
   Html5.prototype.textTracks = function() {
     return {
+      removeEventListener() {},
       addEventListener(type, handler) {
         events[type] = true;
       }
@@ -121,6 +122,8 @@ QUnit.test('listen to remove and add track events in native text tracks', functi
 
   Html5.TEST_VID = oldTestVid;
   Html5.prototype.textTracks = oldTextTracks;
+
+  html.dispose();
 });
 
 QUnit.test('update texttrack buttons on removetrack or addtrack', function(assert) {
@@ -130,6 +133,7 @@ QUnit.test('update texttrack buttons on removetrack or addtrack', function(asser
   const oldSubsUpdate = SubtitlesButton.prototype.update;
   const oldDescriptionsUpdate = DescriptionsButton.prototype.update;
   const oldChaptersUpdate = ChaptersButton.prototype.update;
+  const oldSubsCapsUpdate = SubsCapsButton.prototype.update;
 
   CaptionsButton.prototype.update = function() {
     update++;
@@ -146,6 +150,10 @@ QUnit.test('update texttrack buttons on removetrack or addtrack', function(asser
   ChaptersButton.prototype.update = function() {
     update++;
     oldChaptersUpdate.call(this);
+  };
+  SubsCapsButton.prototype.update = function() {
+    update++;
+    oldSubsCapsUpdate.call(this);
   };
 
   Tech.prototype.featuresNativeTextTracks = true;
@@ -182,70 +190,35 @@ QUnit.test('update texttrack buttons on removetrack or addtrack', function(asser
   track2.src = '#es.vtt';
   tag.appendChild(track2);
 
-  const player = TestHelpers.makePlayer({}, tag);
+  const player = TestHelpers.makePlayer({
+    controlBar: {
+      captionsButton: true,
+      subtitlesButton: true
+    }
+  }, tag);
 
   player.player_ = player;
 
-  assert.equal(update, 4, 'update was called on the four buttons during init');
+  assert.equal(update, 5, 'update was called on the five buttons during init');
 
   for (let i = 0; i < events.removetrack.length; i++) {
     events.removetrack[i]();
   }
 
-  assert.equal(update, 8, 'update was called on the four buttons for remove track');
+  assert.equal(update, 10, 'update was called on the five buttons for remove track');
 
   for (let i = 0; i < events.addtrack.length; i++) {
     events.addtrack[i]();
   }
 
-  assert.equal(update, 12, 'update was called on the four buttons for remove track');
+  assert.equal(update, 15, 'update was called on the five buttons for remove track');
 
   Tech.prototype.textTracks = oldTextTracks;
   Tech.prototype.featuresNativeTextTracks = false;
   CaptionsButton.prototype.update = oldCaptionsUpdate;
   SubtitlesButton.prototype.update = oldSubsUpdate;
   ChaptersButton.prototype.update = oldChaptersUpdate;
-
-  player.dispose();
-});
-
-QUnit.test('if native text tracks are not supported, create a texttrackdisplay', function(assert) {
-  const oldTestVid = Html5.TEST_VID;
-  const oldIsFirefox = browser.IS_FIREFOX;
-  const oldTextTrackDisplay = Component.getComponent('TextTrackDisplay');
-  let called = false;
-  const tag = document.createElement('video');
-  const track1 = document.createElement('track');
-  const track2 = document.createElement('track');
-
-  track1.kind = 'captions';
-  track1.label = 'en';
-  track1.language = 'English';
-  track1.src = 'en.vtt';
-  tag.appendChild(track1);
-
-  track2.kind = 'captions';
-  track2.label = 'es';
-  track2.language = 'Spanish';
-  track2.src = 'es.vtt';
-  tag.appendChild(track2);
-
-  Html5.TEST_VID = {
-    textTracks: []
-  };
-
-  browser.IS_FIREFOX = true;
-  Component.registerComponent('TextTrackDisplay', function() {
-    called = true;
-  });
-
-  const player = TestHelpers.makePlayer({}, tag);
-
-  assert.ok(called, 'text track display was created');
-
-  Html5.TEST_VID = oldTestVid;
-  browser.IS_FIREFOX = oldIsFirefox;
-  Component.registerComponent('TextTrackDisplay', oldTextTrackDisplay);
+  SubsCapsButton.prototype.update = oldSubsCapsUpdate;
 
   player.dispose();
 });
@@ -308,6 +281,8 @@ if (Html5.supportsNativeTextTracks()) {
     emulatedTt.on('removetrack', function() {
       assert.equal(emulatedTt.length, tt.length, 'we have matching tracks length');
       assert.equal(emulatedTt.length, 0, 'we have no more text tracks');
+
+      html.dispose();
       done();
     });
   });
@@ -349,6 +324,8 @@ QUnit.test('should check for text track changes when emulating text tracks', fun
   });
   tech.emulateTextTracks();
   assert.equal(numTextTrackChanges, 1, 'we got a texttrackchange event');
+
+  tech.dispose();
 });
 
 QUnit.test('removes cuechange event when text track is hidden for emulated tracks', function(assert) {
@@ -363,7 +340,7 @@ QUnit.test('removes cuechange event when text track is hidden for emulated track
     startTime: 2,
     endTime: 5
   });
-  player.tech_.textTracks().addTrack_(tt);
+  player.tech_.textTracks().addTrack(tt);
 
   let numTextTrackChanges = 0;
 
@@ -372,29 +349,42 @@ QUnit.test('removes cuechange event when text track is hidden for emulated track
   });
 
   tt.mode = 'showing';
-  assert.equal(numTextTrackChanges, 1,
-    'texttrackchange should be called once for mode change');
+  this.clock.tick(1);
+  assert.equal(
+    numTextTrackChanges, 1,
+    'texttrackchange should be called once for mode change'
+  );
   tt.mode = 'showing';
-  assert.equal(numTextTrackChanges, 2,
-    'texttrackchange should be called once for mode change');
+  this.clock.tick(1);
+  assert.equal(
+    numTextTrackChanges, 2,
+    'texttrackchange should be called once for mode change'
+  );
 
   player.tech_.currentTime = function() {
     return 3;
   };
   player.tech_.trigger('timeupdate');
-  assert.equal(numTextTrackChanges, 3,
-    'texttrackchange should be triggered once for the cuechange');
+  assert.equal(
+    numTextTrackChanges, 3,
+    'texttrackchange should be triggered once for the cuechange'
+  );
 
   tt.mode = 'hidden';
-  assert.equal(numTextTrackChanges, 4,
-    'texttrackchange should be called once for the mode change');
+  this.clock.tick(1);
+  assert.equal(
+    numTextTrackChanges, 4,
+    'texttrackchange should be called once for the mode change'
+  );
 
   player.tech_.currentTime = function() {
     return 7;
   };
   player.tech_.trigger('timeupdate');
-  assert.equal(numTextTrackChanges, 4,
-    'texttrackchange should be not be called since mode is hidden');
+  assert.equal(
+    numTextTrackChanges, 4,
+    'texttrackchange should be not be called since mode is hidden'
+  );
   player.dispose();
 });
 
@@ -412,7 +402,7 @@ QUnit.test('should return correct remote text track values', function(assert) {
   const tag = document.getElementById('example_1');
   const player = TestHelpers.makePlayer({}, tag);
 
-  this.clock.tick(1);
+  this.clock.tick(10);
 
   assert.equal(player.remoteTextTracks().length, 1, 'add text track via html');
   assert.equal(player.remoteTextTrackEls().length, 1, 'add html track element via html');
@@ -420,7 +410,7 @@ QUnit.test('should return correct remote text track values', function(assert) {
   const htmlTrackElement = player.addRemoteTextTrack({
     kind: 'captions',
     label: 'label'
-  });
+  }, true);
 
   assert.equal(player.remoteTextTracks().length, 2, 'add text track via method');
   assert.equal(player.remoteTextTrackEls().length, 2, 'add html track element via method');
@@ -428,9 +418,11 @@ QUnit.test('should return correct remote text track values', function(assert) {
   player.removeRemoteTextTrack(htmlTrackElement.track);
 
   assert.equal(player.remoteTextTracks().length, 1, 'remove text track via method');
-  assert.equal(player.remoteTextTrackEls().length,
-              1,
-              'remove html track element via method');
+  assert.equal(
+    player.remoteTextTrackEls().length,
+    1,
+    'remove html track element via method'
+  );
 
   player.dispose();
 });
@@ -447,28 +439,40 @@ QUnit.test('should uniformly create html track element when adding text track', 
 
   assert.equal(player.remoteTextTrackEls().length, 0, 'no html text tracks');
 
-  const htmlTrackElement = player.addRemoteTextTrack(track);
+  const htmlTrackElement = player.addRemoteTextTrack(track, true);
 
-  assert.equal(htmlTrackElement.kind,
-              htmlTrackElement.track.kind,
-              'verify html track element kind');
-  assert.equal(htmlTrackElement.src,
-              htmlTrackElement.track.src,
-              'verify html track element src');
-  assert.equal(htmlTrackElement.srclang,
-              htmlTrackElement.track.language,
-              'verify html track element language');
-  assert.equal(htmlTrackElement.label,
-              htmlTrackElement.track.label,
-              'verify html track element label');
-  assert.equal(htmlTrackElement.default,
-              htmlTrackElement.track.default,
-              'verify html track element default');
+  assert.equal(
+    htmlTrackElement.kind,
+    htmlTrackElement.track.kind,
+    'verify html track element kind'
+  );
+  assert.equal(
+    htmlTrackElement.src,
+    htmlTrackElement.track.src,
+    'verify html track element src'
+  );
+  assert.equal(
+    htmlTrackElement.srclang,
+    htmlTrackElement.track.language,
+    'verify html track element language'
+  );
+  assert.equal(
+    htmlTrackElement.label,
+    htmlTrackElement.track.label,
+    'verify html track element label'
+  );
+  assert.equal(
+    htmlTrackElement.default,
+    htmlTrackElement.track.default,
+    'verify html track element default'
+  );
 
   assert.equal(player.remoteTextTrackEls().length, 1, 'html track element exist');
-  assert.equal(player.remoteTextTrackEls().getTrackElementByTrack_(htmlTrackElement.track),
-              htmlTrackElement,
-              'verify same html track element');
+  assert.equal(
+    player.remoteTextTrackEls().getTrackElementByTrack_(htmlTrackElement.track),
+    htmlTrackElement,
+    'verify same html track element'
+  );
 
   player.dispose();
 });
@@ -539,22 +543,78 @@ QUnit.test('removeRemoteTextTrack should be able to take both a track and the re
     label: 'label',
     default: 'default'
   };
-  let htmlTrackElement = player.addRemoteTextTrack(track);
+  let htmlTrackElement = player.addRemoteTextTrack(track, true);
 
   assert.equal(player.remoteTextTrackEls().length, 1, 'html track element exist');
 
   player.removeRemoteTextTrack(htmlTrackElement);
 
-  assert.equal(player.remoteTextTrackEls().length,
-              0,
-              'the track element was removed correctly');
+  assert.equal(
+    player.remoteTextTrackEls().length,
+    0,
+    'the track element was removed correctly'
+  );
 
-  htmlTrackElement = player.addRemoteTextTrack(track);
+  htmlTrackElement = player.addRemoteTextTrack(track, true);
   assert.equal(player.remoteTextTrackEls().length, 1, 'html track element exist');
 
   player.removeRemoteTextTrack(htmlTrackElement.track);
-  assert.equal(player.remoteTextTrackEls().length,
-              0,
-              'the track element was removed correctly');
+  assert.equal(
+    player.remoteTextTrackEls().length,
+    0,
+    'the track element was removed correctly'
+  );
   player.dispose();
 });
+
+if (Html5.isSupported()) {
+  QUnit.test('auto remove tracks should not clean up tracks added while source is being added', function(assert) {
+    const player = TestHelpers.makePlayer({
+      techOrder: ['html5'],
+      html5: {
+        nativeTextTracks: false
+      }
+    });
+
+    const track = {
+      kind: 'kind',
+      src: 'src',
+      language: 'language',
+      label: 'label',
+      default: 'default'
+    };
+
+    player.src({src: 'example.mp4', type: 'video/mp4'});
+    player.addRemoteTextTrack(track, false);
+
+    this.clock.tick(1);
+    assert.equal(player.textTracks().length, 1, 'we have one text track');
+
+    player.dispose();
+  });
+
+  QUnit.test('auto remove tracks added right before a source change will be cleaned up', function(assert) {
+    const player = TestHelpers.makePlayer({
+      techOrder: ['html5'],
+      html5: {
+        nativeTextTracks: false
+      }
+    });
+
+    const track = {
+      kind: 'kind',
+      src: 'src',
+      language: 'language',
+      label: 'label',
+      default: 'default'
+    };
+
+    player.addRemoteTextTrack(track, false);
+    player.src({src: 'example.mp4', type: 'video/mp4'});
+
+    this.clock.tick(1);
+    assert.equal(player.textTracks().length, 0, 'we do not have any tracks left');
+
+    player.dispose();
+  });
+}

@@ -24,22 +24,30 @@ const fontMap = {
  * Construct an rgba color from a given hex color code.
  *
  * @param {number} color
- *        Hex number for color, like #f0e.
+ *        Hex number for color, like #f0e or #f604e2.
  *
  * @param {number} opacity
  *        Value for opacity, 0.0 - 1.0.
  *
  * @return {string}
  *         The rgba color that was created, like 'rgba(255, 0, 0, 0.3)'.
- *
- * @private
  */
-function constructColor(color, opacity) {
-  return 'rgba(' +
+export function constructColor(color, opacity) {
+  let hex;
+
+  if (color.length === 4) {
     // color looks like "#f0e"
-    parseInt(color[1] + color[1], 16) + ',' +
-    parseInt(color[2] + color[2], 16) + ',' +
-    parseInt(color[3] + color[3], 16) + ',' +
+    hex = color[1] + color[1] + color[2] + color[2] + color[3] + color[3];
+  } else if (color.length === 7) {
+    // color looks like "#f604e2"
+    hex = color.slice(1);
+  } else {
+    throw new Error('Invalid color code provided, ' + color + '; must be formatted as e.g. #f0e or #f604e2.');
+  }
+  return 'rgba(' +
+    parseInt(hex.slice(0, 2), 16) + ',' +
+    parseInt(hex.slice(2, 4), 16) + ',' +
+    parseInt(hex.slice(4, 6), 16) + ',' +
     opacity + ')';
 }
 
@@ -55,6 +63,8 @@ function constructColor(color, opacity) {
  *
  * @param {string} rule
  *        The style rule that should be applied to the property.
+ *
+ * @private
  */
 function tryUpdateStyle(el, style, rule) {
   try {
@@ -88,8 +98,11 @@ class TextTrackDisplay extends Component {
   constructor(player, options, ready) {
     super(player, options, ready);
 
+    const updateDisplayHandler = Fn.bind(this, this.updateDisplay);
+
     player.on('loadstart', Fn.bind(this, this.toggleDisplay));
-    player.on('texttrackchange', Fn.bind(this, this.updateDisplay));
+    player.on('texttrackchange', updateDisplayHandler);
+    player.on('loadedmetadata', Fn.bind(this, this.preselectTrack));
 
     // This used to be called during player init, but was causing an error
     // if a track should show by default and the display hadn't loaded yet.
@@ -101,43 +114,81 @@ class TextTrackDisplay extends Component {
         return;
       }
 
-      player.on('fullscreenchange', Fn.bind(this, this.updateDisplay));
+      player.on('fullscreenchange', updateDisplayHandler);
+      player.on('playerresize', updateDisplayHandler);
+
+      window.addEventListener('orientationchange', updateDisplayHandler);
+      player.on('dispose', () => window.removeEventListener('orientationchange', updateDisplayHandler));
 
       const tracks = this.options_.playerOptions.tracks || [];
 
       for (let i = 0; i < tracks.length; i++) {
-        this.player_.addRemoteTextTrack(tracks[i]);
+        this.player_.addRemoteTextTrack(tracks[i], true);
       }
 
-      const modes = {captions: 1, subtitles: 1};
-      const trackList = this.player_.textTracks();
-      let firstDesc;
-      let firstCaptions;
-
-      if (trackList) {
-        for (let i = 0; i < trackList.length; i++) {
-          const track = trackList[i];
-
-          if (track.default) {
-            if (track.kind === 'descriptions' && !firstDesc) {
-              firstDesc = track;
-            } else if (track.kind in modes && !firstCaptions) {
-              firstCaptions = track;
-            }
-          }
-        }
-
-        // We want to show the first default track but captions and subtitles
-        // take precedence over descriptions.
-        // So, display the first default captions or subtitles track
-        // and otherwise the first default descriptions track.
-        if (firstCaptions) {
-          firstCaptions.mode = 'showing';
-        } else if (firstDesc) {
-          firstDesc.mode = 'showing';
-        }
-      }
+      this.preselectTrack();
     }));
+  }
+
+  /**
+  * Preselect a track following this precedence:
+  * - matches the previously selected {@link TextTrack}'s language and kind
+  * - matches the previously selected {@link TextTrack}'s language only
+  * - is the first default captions track
+  * - is the first default descriptions track
+  *
+  * @listens Player#loadstart
+  */
+  preselectTrack() {
+    const modes = {captions: 1, subtitles: 1};
+    const trackList = this.player_.textTracks();
+    const userPref = this.player_.cache_.selectedLanguage;
+    let firstDesc;
+    let firstCaptions;
+    let preferredTrack;
+
+    for (let i = 0; i < trackList.length; i++) {
+      const track = trackList[i];
+
+      if (
+        userPref && userPref.enabled &&
+        userPref.language && userPref.language === track.language &&
+        track.kind in modes
+      ) {
+        // Always choose the track that matches both language and kind
+        if (track.kind === userPref.kind) {
+          preferredTrack = track;
+        // or choose the first track that matches language
+        } else if (!preferredTrack) {
+          preferredTrack = track;
+        }
+
+      // clear everything if offTextTrackMenuItem was clicked
+      } else if (userPref && !userPref.enabled) {
+        preferredTrack = null;
+        firstDesc = null;
+        firstCaptions = null;
+
+      } else if (track.default) {
+        if (track.kind === 'descriptions' && !firstDesc) {
+          firstDesc = track;
+        } else if (track.kind in modes && !firstCaptions) {
+          firstCaptions = track;
+        }
+      }
+    }
+
+    // The preferredTrack matches the user preference and takes
+    // precedence over all the other tracks.
+    // So, display the preferredTrack before the first default track
+    // and the subtitles/captions track before the descriptions track
+    if (preferredTrack) {
+      preferredTrack.mode = 'showing';
+    } else if (firstCaptions) {
+      firstCaptions.mode = 'showing';
+    } else if (firstDesc) {
+      firstDesc.mode = 'showing';
+    }
   }
 
   /**
@@ -192,17 +243,12 @@ class TextTrackDisplay extends Component {
 
     this.clearDisplay();
 
-    if (!tracks) {
-      return;
-    }
-
     // Track display prioritization model: if multiple tracks are 'showing',
     //  display the first 'subtitles' or 'captions' track which is 'showing',
     //  otherwise display the first 'descriptions' track which is 'showing'
 
     let descriptionsTrack = null;
     let captionsSubtitlesTrack = null;
-
     let i = tracks.length;
 
     while (i--) {
@@ -231,7 +277,7 @@ class TextTrackDisplay extends Component {
   }
 
   /**
-   * Add an {@link Texttrack} to to the {@link Tech}s {@link TextTrackList}.
+   * Add an {@link TextTrack} to to the {@link Tech}s {@link TextTrackList}.
    *
    * @param {TextTrack} track
    *        Text track object to be added to the list.
@@ -241,7 +287,6 @@ class TextTrackDisplay extends Component {
       return;
     }
 
-    const overrides = this.player_.textTrackSettings.getValues();
     const cues = [];
 
     for (let i = 0; i < track.activeCues.length; i++) {
@@ -249,6 +294,12 @@ class TextTrackDisplay extends Component {
     }
 
     window.WebVTT.processCues(window, cues, this.el_);
+
+    if (!this.player_.textTrackSettings) {
+      return;
+    }
+
+    const overrides = this.player_.textTrackSettings.getValues();
 
     let i = cues.length;
 
@@ -265,25 +316,35 @@ class TextTrackDisplay extends Component {
         cueDiv.firstChild.style.color = overrides.color;
       }
       if (overrides.textOpacity) {
-        tryUpdateStyle(cueDiv.firstChild,
-                       'color',
-                       constructColor(overrides.color || '#fff',
-                                      overrides.textOpacity));
+        tryUpdateStyle(
+          cueDiv.firstChild,
+          'color',
+          constructColor(
+            overrides.color || '#fff',
+            overrides.textOpacity
+          )
+        );
       }
       if (overrides.backgroundColor) {
         cueDiv.firstChild.style.backgroundColor = overrides.backgroundColor;
       }
       if (overrides.backgroundOpacity) {
-        tryUpdateStyle(cueDiv.firstChild,
-                       'backgroundColor',
-                       constructColor(overrides.backgroundColor || '#000',
-                                      overrides.backgroundOpacity));
+        tryUpdateStyle(
+          cueDiv.firstChild,
+          'backgroundColor',
+          constructColor(
+            overrides.backgroundColor || '#000',
+            overrides.backgroundOpacity
+          )
+        );
       }
       if (overrides.windowColor) {
         if (overrides.windowOpacity) {
-          tryUpdateStyle(cueDiv,
-                         'backgroundColor',
-                         constructColor(overrides.windowColor, overrides.windowOpacity));
+          tryUpdateStyle(
+            cueDiv,
+            'backgroundColor',
+            constructColor(overrides.windowColor, overrides.windowOpacity)
+          );
         } else {
           cueDiv.style.backgroundColor = overrides.windowColor;
         }

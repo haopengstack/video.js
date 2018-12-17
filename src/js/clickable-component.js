@@ -1,5 +1,5 @@
 /**
- * @file button.js
+ * @file clickable-component.js
  */
 import Component from './component';
 import * as Dom from './utils/dom.js';
@@ -51,6 +51,7 @@ class ClickableComponent extends Component {
    */
   createEl(tag = 'div', props = {}, attributes = {}) {
     props = assign({
+      innerHTML: '<span aria-hidden="true" class="vjs-icon-placeholder"></span>',
       className: this.buildCSSClass(),
       tabIndex: 0
     }, props);
@@ -61,10 +62,7 @@ class ClickableComponent extends Component {
 
     // Add ARIA attributes for clickable element which is not a native HTML button
     attributes = assign({
-      'role': 'button',
-
-      // let the screen reader user know that the text of the element may change
-      'aria-live': 'polite'
+      role: 'button'
     }, attributes);
 
     this.tabIndex_ = props.tabIndex;
@@ -74,6 +72,13 @@ class ClickableComponent extends Component {
     this.createControlTextEl(el);
 
     return el;
+  }
+
+  dispose() {
+    // remove controlTextEl_ on dispose
+    this.controlTextEl_ = null;
+
+    super.dispose();
   }
 
   /**
@@ -88,6 +93,9 @@ class ClickableComponent extends Component {
   createControlTextEl(el) {
     this.controlTextEl_ = Dom.createEl('span', {
       className: 'vjs-control-text'
+    }, {
+      // let the screen reader user know that the text of the element may change
+      'aria-live': 'polite'
     });
 
     if (el) {
@@ -108,22 +116,22 @@ class ClickableComponent extends Component {
    * @param {Element} [el=this.el()]
    *        Element to set the title on.
    *
-   * @return {string|ClickableComponent}
+   * @return {string}
    *         - The control text when getting
-   *         - Returns itself when setting; method can be chained.
    */
   controlText(text, el = this.el()) {
-    if (!text) {
+    if (text === undefined) {
       return this.controlText_ || 'Need Text';
     }
 
     const localizedText = this.localize(text);
 
     this.controlText_ = text;
-    this.controlTextEl_.innerHTML = localizedText;
-    el.setAttribute('title', localizedText);
-
-    return this;
+    Dom.textContent(this.controlTextEl_, localizedText);
+    if (!this.nonIconControl) {
+      // Set title attribute if only an icon is shown
+      el.setAttribute('title', localizedText);
+    }
   }
 
   /**
@@ -138,40 +146,34 @@ class ClickableComponent extends Component {
 
   /**
    * Enable this `Component`s element.
-   *
-   * @return {ClickableComponent}
-   *         Returns itself; method can be chained.
    */
   enable() {
-    this.removeClass('vjs-disabled');
-    this.el_.setAttribute('aria-disabled', 'false');
-    if (typeof this.tabIndex_ !== 'undefined') {
-      this.el_.setAttribute('tabIndex', this.tabIndex_);
+    if (!this.enabled_) {
+      this.enabled_ = true;
+      this.removeClass('vjs-disabled');
+      this.el_.setAttribute('aria-disabled', 'false');
+      if (typeof this.tabIndex_ !== 'undefined') {
+        this.el_.setAttribute('tabIndex', this.tabIndex_);
+      }
+      this.on(['tap', 'click'], this.handleClick);
+      this.on('focus', this.handleFocus);
+      this.on('blur', this.handleBlur);
     }
-    this.on('tap', this.handleClick);
-    this.on('click', this.handleClick);
-    this.on('focus', this.handleFocus);
-    this.on('blur', this.handleBlur);
-    return this;
   }
 
   /**
    * Disable this `Component`s element.
-   *
-   * @return {ClickableComponent}
-   *         Returns itself; method can be chained.
    */
   disable() {
+    this.enabled_ = false;
     this.addClass('vjs-disabled');
     this.el_.setAttribute('aria-disabled', 'true');
     if (typeof this.tabIndex_ !== 'undefined') {
       this.el_.removeAttribute('tabIndex');
     }
-    this.off('tap', this.handleClick);
-    this.off('click', this.handleClick);
+    this.off(['tap', 'click'], this.handleClick);
     this.off('focus', this.handleFocus);
     this.off('blur', this.handleBlur);
-    return this;
   }
 
   /**
@@ -226,7 +228,7 @@ class ClickableComponent extends Component {
     // Support Space (32) or Enter (13) key operation to fire a click event
     if (event.which === 32 || event.which === 13) {
       event.preventDefault();
-      this.handleClick(event);
+      this.trigger('click');
     } else if (super.handleKeyPress) {
 
       // Pass keypress handling up for unsupported keys

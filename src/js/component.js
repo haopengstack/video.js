@@ -4,10 +4,12 @@
  * @file component.js
  */
 import window from 'global/window';
+import evented from './mixins/evented';
+import stateful from './mixins/stateful';
 import * as Dom from './utils/dom.js';
+import * as DomData from './utils/dom-data';
 import * as Fn from './utils/fn.js';
 import * as Guid from './utils/guid.js';
-import * as Events from './utils/events.js';
 import log from './utils/log.js';
 import toTitleCase from './utils/to-title-case.js';
 import mergeOptions from './utils/merge-options.js';
@@ -17,33 +19,6 @@ import mergeOptions from './utils/merge-options.js';
  * Components are UI objects which represent both a javascript object and an element
  * in the DOM. They can be children of other components, and can have
  * children themselves.
- *
- * Creating a button component.
- * ``` js
- *   // adding a button to the player
- *   var player = videojs('some-video-id');
- *   var Component = videojs.getComponent('Component');
- *   var button = new Component(player);
- *
- *   console.log(button.el());
- * ```
- *
- * Above code will log this html.
- * ```html
- *   <div class="video-js">
- *     <div class="vjs-button">Button</div>
- *   </div>
- * ```
- *
- * Adding a button to the player
- * ``` js
- *   // adding a button to the player
- *   var player = videojs('some-video-id');
- *   var button = player.addChild('button');
- *
- *   console.log(button.el());
- *   // will have the same html result as the previous example
- * ```
  *
  * Components can also use methods from {@link EventTarget}
  */
@@ -64,7 +39,12 @@ class Component {
    *        The `Player` that this class should be attached to.
    *
    * @param {Object} [options]
-   *         The key/value store of player options.
+   *        The key/value store of player options.
+   *
+   * @param {Object[]} [options.children]
+   *        An array of children objects to intialize this component with. Children objects have
+   *        a name property that will be used if more than one component of the same type needs to be
+   *        added.
    *
    * @param {Component~ReadyCallback} [ready]
    *        Function that gets called when the `Component` is ready.
@@ -103,6 +83,13 @@ class Component {
     } else if (options.createEl !== false) {
       this.el_ = this.createEl();
     }
+
+    // if evented is anything except false, we want to mixin in evented
+    if (options.evented !== false) {
+      // Make this an evented object and use `el_`, if available, as its event bus
+      evented(this, {eventBusKey: this.el_ ? 'el_' : null});
+    }
+    stateful(this, this.constructor.defaultState);
 
     this.children_ = [];
     this.childIndex_ = {};
@@ -155,16 +142,18 @@ class Component {
     this.childIndex_ = null;
     this.childNameIndex_ = null;
 
-    // Remove all event listeners.
-    this.off();
+    if (this.el_) {
+      // Remove element from DOM
+      if (this.el_.parentNode) {
+        this.el_.parentNode.removeChild(this.el_);
+      }
 
-    // Remove element from DOM
-    if (this.el_.parentNode) {
-      this.el_.parentNode.removeChild(this.el_);
+      DomData.removeData(this.el_);
+      this.el_ = null;
     }
 
-    Dom.removeElData(this.el_);
-    this.el_ = null;
+    // remove reference to the player after disposing of the element
+    this.player_ = null;
   }
 
   /**
@@ -181,41 +170,6 @@ class Component {
    * Deep merge of options objects with new options.
    * > Note: When both `obj` and `options` contain properties whose values are objects.
    *         The two properties get merged using {@link module:mergeOptions}
-   *
-   * Example
-   * ```js
-   *   var player = videojs('some-vid-id');
-   *   var Component = videojs.getComponent('Component');
-   *   var component = new Component(player, {
-   *     optionSet: {
-   *       childOne: {foo: 'bar', asdf: 'fdsa'},
-   *       childTwo: {},
-   *       childThree: {}
-   *     }
-   *   });
-   *
-   *   const newOptions = {
-   *     optionSet: {
-   *       childOne: {foo: 'baz', abc: '123'}
-   *       childTwo: null,
-   *       childFour: {}
-   *     }
-   *   };
-   *
-   *   console.log(component.options(newOptions));
-   * ```
-   *
-   * Result
-   * ```js
-   *   {
-   *     optionSet: {
-   *       childOne: {foo: 'baz', asdf: 'fdsa', abc: '123' },
-   *       childTwo: null,
-   *       childThree: {},
-   *       childFour: {}
-   *     }
-   *   }
-   * ```
    *
    * @param {Object} obj
    *        The object that contains new options.
@@ -268,34 +222,70 @@ class Component {
   /**
    * Localize a string given the string in english.
    *
+   * If tokens are provided, it'll try and run a simple token replacement on the provided string.
+   * The tokens it looks for look like `{1}` with the index being 1-indexed into the tokens array.
+   *
+   * If a `defaultValue` is provided, it'll use that over `string`,
+   * if a value isn't found in provided language files.
+   * This is useful if you want to have a descriptive key for token replacement
+   * but have a succinct localized string and not require `en.json` to be included.
+   *
+   * Currently, it is used for the progress bar timing.
+   * ```js
+   * {
+   *   "progress bar timing: currentTime={1} duration={2}": "{1} of {2}"
+   * }
+   * ```
+   * It is then used like so:
+   * ```js
+   * this.localize('progress bar timing: currentTime={1} duration{2}',
+   *               [this.player_.currentTime(), this.player_.duration()],
+   *               '{1} of {2}');
+   * ```
+   *
+   * Which outputs something like: `01:23 of 24:56`.
+   *
+   *
    * @param {string} string
-   *        The string to localize.
+   *        The string to localize and the key to lookup in the language files.
+   * @param {string[]} [tokens]
+   *        If the current item has token replacements, provide the tokens here.
+   * @param {string} [defaultValue]
+   *        Defaults to `string`. Can be a default value to use for token replacement
+   *        if the lookup key is needed to be separate.
    *
    * @return {string}
    *         The localized string or if no localization exists the english string.
    */
-  localize(string) {
+  localize(string, tokens, defaultValue = string) {
     const code = this.player_.language && this.player_.language();
     const languages = this.player_.languages && this.player_.languages();
+    const language = languages && languages[code];
+    const primaryCode = code && code.split('-')[0];
+    const primaryLang = languages && languages[primaryCode];
 
-    if (!code || !languages) {
-      return string;
-    }
-
-    const language = languages[code];
+    let localizedString = defaultValue;
 
     if (language && language[string]) {
-      return language[string];
+      localizedString = language[string];
+    } else if (primaryLang && primaryLang[string]) {
+      localizedString = primaryLang[string];
     }
 
-    const primaryCode = code.split('-')[0];
-    const primaryLang = languages[primaryCode];
+    if (tokens) {
+      localizedString = localizedString.replace(/\{(\d+)\}/g, function(match, index) {
+        const value = tokens[index - 1];
+        let ret = value;
 
-    if (primaryLang && primaryLang[string]) {
-      return primaryLang[string];
+        if (typeof value === 'undefined') {
+          ret = match;
+        }
+
+        return ret;
+      });
     }
 
-    return string;
+    return localizedString;
   }
 
   /**
@@ -375,37 +365,6 @@ class Component {
   /**
    * Add a child `Component` inside the current `Component`.
    *
-   * Example:
-   * ```js
-   *   var player = videojs('some-vid-id');
-   *   var Component = videojs.getComponent('Component');
-   *   var myComponent = new Component(player);
-   *
-   *   console.log(myComponent.el());
-   *   // -> <div class='my-component'></div>
-   *   console.log(myComponent.children());
-   *   // [empty array]
-   *
-   *   var myButton = myComponent.addChild('MyButton');
-   *
-   *   console.log(myComponent.el());
-   *   // -> <div class='my-component'><div class="my-button">myButton<div></div>
-   *   console.log(myComponent.children());
-   *   // -> myButton === myComponent.children()[0];
-   * ```
-   *
-   * Pass in options for child constructors and options for children of the child.
-   * ```js
-   *   var player = videojs('some-vid-id');
-   *   var Component = videojs.getComponent('Component');
-   *   var myComponent = new Component(player);
-   *   var myButton = myComponent.addChild('MyButton', {
-   *     text: 'Press Me',
-   *     buttonChildExample: {
-   *       buttonChildOption: true
-   *     }
-   *   });
-   * ```
    *
    * @param {string|Component} child
    *        The name or instance of a child to add.
@@ -428,21 +387,6 @@ class Component {
     // If child is a string, create component with options
     if (typeof child === 'string') {
       componentName = toTitleCase(child);
-
-      // Options can also be specified as a boolean,
-      // so convert to an empty object if false.
-      if (!options) {
-        options = {};
-      }
-
-      // Same as above, but true is deprecated so show a warning.
-      if (options === true) {
-        log.warn('Initializing a child component with `true` is deprecated.' +
-          'Children should be defined in an array when possible, ' +
-          'but if necessary use an object instead of `true`.'
-        );
-        options = {};
-      }
 
       const componentClassName = options.componentClass || componentName;
 
@@ -480,7 +424,7 @@ class Component {
 
     // If a name wasn't used to create the component, check if we can use the
     // name function of the component
-    componentName = componentName || (component.name && component.name());
+    componentName = componentName || (component.name && toTitleCase(component.name()));
 
     if (componentName) {
       this.childNameIndex_[componentName] = component;
@@ -541,48 +485,6 @@ class Component {
 
   /**
    * Add and initialize default child `Component`s based upon options.
-   *
-   * Example.
-   * ```js
-   *   var MyComponent = videojs.extend(videojs.getComponent('Component'));
-   *   // when an instance of MyComponent is created, all children in options
-   *   // will be added to the instance by their name strings and options
-   *   MyComponent.prototype.options_ = {
-   *     children: [
-   *       'myChildComponent'
-   *     ],
-   *     myChildComponent: {
-   *       myChildOption: true
-   *     }
-   *   };
-   *
-   *   // Or when creating the component
-   *   var player = videojs('some-player-id');
-   *   var myComp = new MyComponent(player, {
-   *     children: [
-   *       'myChildComponent'
-   *     ],
-   *     myChildComponent: {
-   *       myChildOption: true
-   *     }
-   *   });
-   * ```
-   *
-   * The children option can also be an array of child options objects
-   * (that also include a 'name' key). This will get used if you have two child
-   * components of the same type that need different options.
-   * ```js
-   *   // MyComponent is from the above example
-   *   var myComp = new MyComponent(player, {
-   *     children: ['button', {
-   *       name: 'button',
-   *       someOtherOption: true
-   *     }, {
-   *       name: 'button',
-   *       someOtherOption: false
-   *     }]
-   *   });
-   * ```
    */
   initChildren() {
     const children = this.options_.children;
@@ -643,39 +545,39 @@ class Component {
       workingChildren
       // children that are in this.options_ but also in workingChildren  would
       // give us extra children we do not want. So, we want to filter them out.
-      .concat(Object.keys(this.options_)
-              .filter(function(child) {
-                return !workingChildren.some(function(wchild) {
-                  if (typeof wchild === 'string') {
-                    return child === wchild;
-                  }
-                  return child === wchild.name;
-                });
-              }))
-      .map((child) => {
-        let name;
-        let opts;
+        .concat(Object.keys(this.options_)
+          .filter(function(child) {
+            return !workingChildren.some(function(wchild) {
+              if (typeof wchild === 'string') {
+                return child === wchild;
+              }
+              return child === wchild.name;
+            });
+          }))
+        .map((child) => {
+          let name;
+          let opts;
 
-        if (typeof child === 'string') {
-          name = child;
-          opts = children[name] || this.options_[name] || {};
-        } else {
-          name = child.name;
-          opts = child;
-        }
+          if (typeof child === 'string') {
+            name = child;
+            opts = children[name] || this.options_[name] || {};
+          } else {
+            name = child.name;
+            opts = child;
+          }
 
-        return {name, opts};
-      })
-      .filter((child) => {
+          return {name, opts};
+        })
+        .filter((child) => {
         // we have to make sure that child.name isn't in the techOrder since
         // techs are registerd as Components but can't aren't compatible
         // See https://github.com/videojs/video.js/issues/2772
-        const c = Component.getComponent(child.opts.componentClass ||
+          const c = Component.getComponent(child.opts.componentClass ||
                                        toTitleCase(child.name));
 
-        return c && !Tech.isTech(c);
-      })
-      .forEach(handleAdd);
+          return c && !Tech.isTech(c);
+        })
+        .forEach(handleAdd);
     }
   }
 
@@ -694,330 +596,30 @@ class Component {
   }
 
   /**
-   * Add an `event listener` to this `Component`s element.
-   *
-   * ```js
-   *   var player = videojs('some-player-id');
-   *   var Component = videojs.getComponent('Component');
-   *   var myComponent = new Component(player);
-   *   var myFunc = function() {
-   *     var myComponent = this;
-   *     console.log('myFunc called');
-   *   };
-   *
-   *   myComponent.on('eventType', myFunc);
-   *   myComponent.trigger('eventType');
-   *   // logs 'myFunc called'
-   * ```
-   *
-   * The context of `myFunc` will be `myComponent` unless it is bound. You can add
-   * a listener to another element or component.
-   * ```js
-   *   var otherComponent = new Component(player);
-   *
-   *   // myComponent/myFunc is from the above example
-   *   myComponent.on(otherComponent.el(), 'eventName', myFunc);
-   *   myComponent.on(otherComponent, 'eventName', myFunc);
-   *
-   *   otherComponent.trigger('eventName');
-   *   // logs 'myFunc called' twice
-   * ```
-   *
-   * The benefit of using this over the following:
-   * - `VjsEvents.on(otherElement, 'eventName', myFunc)`
-   * - `otherComponent.on('eventName', myFunc)`
-   * Is that the listeners will get cleaned up when either component gets disposed.
-   * It will also bind `myComponent` as the context of `myFunc`.
-   * > NOTE: If you remove the element from the DOM that has used `on` you need to
-   *             clean up references using:
-   *
-   *             `myComponent.trigger(el, 'dispose')`
-   *
-   *             This will also allow the browser to garbage collect it. In special
-   *             cases such as with `window` and `document`, which are both permanent,
-   *             this is not necessary.
-   *
-   * @param {string|Component|string[]} [first]
-   *        The event name, and array of event names, or another `Component`.
-   *
-   * @param {EventTarget~EventListener|string|string[]} [second]
-   *        The listener function, an event name, or an Array of events names.
-   *
-   * @param {EventTarget~EventListener} [third]
-   *        The event handler if `first` is a `Component` and `second` is an event name
-   *        or an Array of event names.
-   *
-   * @return {Component}
-   *         Returns itself; method can be chained.
-   *
-   * @listens Component#dispose
-   */
-  on(first, second, third) {
-    if (typeof first === 'string' || Array.isArray(first)) {
-      Events.on(this.el_, first, Fn.bind(this, second));
-
-    // Targeting another component or element
-    } else {
-      const target = first;
-      const type = second;
-      const fn = Fn.bind(this, third);
-
-      // When this component is disposed, remove the listener from the other component
-      const removeOnDispose = () => this.off(target, type, fn);
-
-      // Use the same function ID so we can remove it later it using the ID
-      // of the original listener
-      removeOnDispose.guid = fn.guid;
-      this.on('dispose', removeOnDispose);
-
-      // If the other component is disposed first we need to clean the reference
-      // to the other component in this component's removeOnDispose listener
-      // Otherwise we create a memory leak.
-      const cleanRemover = () => this.off('dispose', removeOnDispose);
-
-      // Add the same function ID so we can easily remove it later
-      cleanRemover.guid = fn.guid;
-
-      // Check if this is a DOM node
-      if (first.nodeName) {
-        // Add the listener to the other element
-        Events.on(target, type, fn);
-        Events.on(target, 'dispose', cleanRemover);
-
-      // Should be a component
-      // Not using `instanceof Component` because it makes mock players difficult
-      } else if (typeof first.on === 'function') {
-        // Add the listener to the other component
-        target.on(type, fn);
-        target.on('dispose', cleanRemover);
-      }
-    }
-
-    return this;
-  }
-
-  /**
-   * Remove an event listener from this `Component`s element.
-   * ```js
-   *   var player = videojs('some-player-id');
-   *   var Component = videojs.getComponent('Component');
-   *   var myComponent = new Component(player);
-   *   var myFunc = function() {
-   *     var myComponent = this;
-   *     console.log('myFunc called');
-   *   };
-   *   myComponent.on('eventType', myFunc);
-   *   myComponent.trigger('eventType');
-   *   // logs 'myFunc called'
-   *
-   *   myComponent.off('eventType', myFunc);
-   *   myComponent.trigger('eventType');
-   *   // does nothing
-   * ```
-   *
-   * If myFunc gets excluded, ALL listeners for the event type will get removed. If
-   * eventType gets excluded, ALL listeners will get removed from the component.
-   * You can use `off` to remove listeners that get added to other elements or
-   * components using:
-   *
-   *  `myComponent.on(otherComponent...`
-   *
-   * In this case both the event type and listener function are **REQUIRED**.
-   *
-   * ```js
-   *   var otherComponent = new Component(player);
-   *
-   *   // myComponent/myFunc is from the above example
-   *   myComponent.on(otherComponent.el(), 'eventName', myFunc);
-   *   myComponent.on(otherComponent, 'eventName', myFunc);
-   *
-   *   otherComponent.trigger('eventName');
-   *   // logs 'myFunc called' twice
-   *   myComponent.off(ootherComponent.el(), 'eventName', myFunc);
-   *   myComponent.off(otherComponent, 'eventName', myFunc);
-   *   otherComponent.trigger('eventName');
-   *   // does nothing
-   * ```
-   *
-   * @param {string|Component|string[]} [first]
-   *        The event name, and array of event names, or another `Component`.
-   *
-   * @param {EventTarget~EventListener|string|string[]} [second]
-   *        The listener function, an event name, or an Array of events names.
-   *
-   * @param {EventTarget~EventListener} [third]
-   *        The event handler if `first` is a `Component` and `second` is an event name
-   *        or an Array of event names.
-   *
-   * @return {Component}
-   *         Returns itself; method can be chained.
-   */
-  off(first, second, third) {
-    if (!first || typeof first === 'string' || Array.isArray(first)) {
-      Events.off(this.el_, first, second);
-    } else {
-      const target = first;
-      const type = second;
-      // Ensure there's at least a guid, even if the function hasn't been used
-      const fn = Fn.bind(this, third);
-
-      // Remove the dispose listener on this component,
-      // which was given the same guid as the event listener
-      this.off('dispose', fn);
-
-      if (first.nodeName) {
-        // Remove the listener
-        Events.off(target, type, fn);
-        // Remove the listener for cleaning the dispose listener
-        Events.off(target, 'dispose', fn);
-      } else {
-        target.off(type, fn);
-        target.off('dispose', fn);
-      }
-    }
-
-    return this;
-  }
-
-  /**
-   * Add an event listener that gets triggered only once and then gets removed.
-   * ```js
-   *   var player = videojs('some-player-id');
-   *   var Component = videojs.getComponent('Component');
-   *   var myComponent = new Component(player);
-   *   var myFunc = function() {
-   *     var myComponent = this;
-   *     console.log('myFunc called');
-   *   };
-   *   myComponent.one('eventName', myFunc);
-   *   myComponent.trigger('eventName');
-   *   // logs 'myFunc called'
-   *
-   *   myComponent.trigger('eventName');
-   *   // does nothing
-   *
-   * ```
-   *
-   * You can also add a listener to another element or component that will get
-   * triggered only once.
-   * ```js
-   *   var otherComponent = new Component(player);
-   *
-   *   // myComponent/myFunc is from the above example
-   *   myComponent.one(otherComponent.el(), 'eventName', myFunc);
-   *   myComponent.one(otherComponent, 'eventName', myFunc);
-   *
-   *   otherComponent.trigger('eventName');
-   *   // logs 'myFunc called' twice
-   *
-   *   otherComponent.trigger('eventName');
-   *   // does nothing
-   * ```
-   *
-   * @param {string|Component|string[]} [first]
-   *        The event name, and array of event names, or another `Component`.
-   *
-   * @param {EventTarget~EventListener|string|string[]} [second]
-   *        The listener function, an event name, or an Array of events names.
-   *
-   * @param {EventTarget~EventListener} [third]
-   *        The event handler if `first` is a `Component` and `second` is an event name
-   *        or an Array of event names.
-   *
-   * @return {Component}
-   *         Returns itself; method can be chained.
-   */
-  one(first, second, third) {
-    if (typeof first === 'string' || Array.isArray(first)) {
-      Events.one(this.el_, first, Fn.bind(this, second));
-    } else {
-      const target = first;
-      const type = second;
-      const fn = Fn.bind(this, third);
-
-      const newFunc = () => {
-        this.off(target, type, newFunc);
-        fn.apply(null, arguments);
-      };
-
-      // Keep the same function ID so we can remove it later
-      newFunc.guid = fn.guid;
-
-      this.on(target, type, newFunc);
-    }
-
-    return this;
-  }
-
-  /**
-   * Trigger an event on an element.
-   *
-   * ```js
-   *   var player = videojs('some-player-id');
-   *   var Component = videojs.getComponent('Component');
-   *   var myComponent = new Component(player);
-   *   var myFunc = function(data) {
-   *     var myComponent = this;
-   *     console.log('myFunc called');
-   *     console.log(data);
-   *   };
-   *   myComponent.one('eventName', myFunc);
-   *   myComponent.trigger('eventName');
-   *   // logs 'myFunc called' and 'undefined'
-   *
-   *   myComponent.trigger({'type':'eventName'});
-   *   // logs 'myFunc called' and 'undefined'
-   *
-   *   myComponent.trigger('eventName', {data: 'some data'});
-   *   // logs 'myFunc called' and "{data: 'some data'}"
-   *
-   *   myComponent.trigger({'type':'eventName'}, {data: 'some data'});
-   *   // logs 'myFunc called' and "{data: 'some data'}"
-   * ```
-   *
-   * @param {EventTarget~Event|Object|string} event
-   *        The event name, and Event, or an event-like object with a type attribute
-   *        set to the event name.
-   *
-   * @param {Object} [hash]
-   *        Data hash to pass along with the event
-   *
-   * @return {Component}
-   *         Returns itself; method can be chained.
-   */
-  trigger(event, hash) {
-    Events.trigger(this.el_, event, hash);
-    return this;
-  }
-
-  /**
-   * Bind a listener to the component's ready state. If the ready event has already
-   * happened it will trigger the function immediately.
-   *
-   * @param  {Component~ReadyCallback} fn
-   *         A function to call when ready is triggered.
-   *
-   * @param  {boolean} [sync=false]
-   *         Execute the listener synchronously if `Component` is ready.
+   * Bind a listener to the component's ready state.
+   * Different from event listeners in that if the ready event has already happened
+   * it will trigger the function immediately.
    *
    * @return {Component}
    *         Returns itself; method can be chained.
    */
   ready(fn, sync = false) {
-    if (fn) {
-      if (this.isReady_) {
-        if (sync) {
-          fn.call(this);
-        } else {
-          // Call the function asynchronously by default for consistency
-          this.setTimeout(fn, 1);
-        }
-      } else {
-        this.readyQueue_ = this.readyQueue_ || [];
-        this.readyQueue_.push(fn);
-      }
+    if (!fn) {
+      return;
     }
-    return this;
+
+    if (!this.isReady_) {
+      this.readyQueue_ = this.readyQueue_ || [];
+      this.readyQueue_.push(fn);
+      return;
+    }
+
+    if (sync) {
+      fn.call(this);
+    } else {
+      // Call the function asynchronously by default for consistency
+      this.setTimeout(fn, 1);
+    }
   }
 
   /**
@@ -1028,7 +630,7 @@ class Component {
   triggerReady() {
     this.isReady_ = true;
 
-    // Ensure ready is triggerd asynchronously
+    // Ensure ready is triggered asynchronously
     this.setTimeout(function() {
       const readyQueue = this.readyQueue_;
 
@@ -1107,7 +709,7 @@ class Component {
    *         - False if the `Component` does not have the class`
    */
   hasClass(classToCheck) {
-    return Dom.hasElClass(this.el_, classToCheck);
+    return Dom.hasClass(this.el_, classToCheck);
   }
 
   /**
@@ -1115,13 +717,9 @@ class Component {
    *
    * @param {string} classToAdd
    *        CSS class name to add
-   *
-   * @return {Component}
-   *         Returns itself; method can be chained.
    */
   addClass(classToAdd) {
-    Dom.addElClass(this.el_, classToAdd);
-    return this;
+    Dom.addClass(this.el_, classToAdd);
   }
 
   /**
@@ -1129,13 +727,9 @@ class Component {
    *
    * @param {string} classToRemove
    *        CSS class name to remove
-   *
-   * @return {Component}
-   *         Returns itself; method can be chained.
    */
   removeClass(classToRemove) {
-    Dom.removeElClass(this.el_, classToRemove);
-    return this;
+    Dom.removeClass(this.el_, classToRemove);
   }
 
   /**
@@ -1148,65 +742,45 @@ class Component {
    *
    * @param  {boolean|Dom~predicate} [predicate]
    *         An {@link Dom~predicate} function or a boolean
-   *
-   * @return {Component}
-   *         Returns itself; method can be chained.
    */
   toggleClass(classToToggle, predicate) {
-    Dom.toggleElClass(this.el_, classToToggle, predicate);
-    return this;
+    Dom.toggleClass(this.el_, classToToggle, predicate);
   }
 
   /**
    * Show the `Component`s element if it is hidden by removing the
    * 'vjs-hidden' class name from it.
-   *
-   * @return {Component}
-   *         Returns itself; method can be chained.
    */
   show() {
     this.removeClass('vjs-hidden');
-    return this;
   }
 
   /**
    * Hide the `Component`s element if it is currently showing by adding the
    * 'vjs-hidden` class name to it.
-   *
-   * @return {Component}
-   *         Returns itself; method can be chained.
    */
   hide() {
     this.addClass('vjs-hidden');
-    return this;
   }
 
   /**
    * Lock a `Component`s element in its visible state by adding the 'vjs-lock-showing'
    * class name to it. Used during fadeIn/fadeOut.
    *
-   * @return {Component}
-   *         Returns itself; method can be chained.
-   *
    * @private
    */
   lockShowing() {
     this.addClass('vjs-lock-showing');
-    return this;
   }
 
   /**
    * Unlock a `Component`s element from its visible state by removing the 'vjs-lock-showing'
    * class name from it. Used during fadeIn/fadeOut.
    *
-   * @return {Component}
-   *         Returns itself; method can be chained.
-   *
    * @private
    */
   unlockShowing() {
     this.removeClass('vjs-lock-showing');
-    return this;
   }
 
   /**
@@ -1237,14 +811,10 @@ class Component {
    * @param {string} value
    *        Value to set the attribute to.
    *
-   * @return {Component}
-   *         Returns itself; method can be chained.
-   *
    * @see [DOM API]{@link https://developer.mozilla.org/en-US/docs/Web/API/Element/setAttribute}
    */
   setAttribute(attribute, value) {
     Dom.setAttribute(this.el_, attribute, value);
-    return this;
   }
 
   /**
@@ -1253,14 +823,10 @@ class Component {
    * @param {string} attribute
    *        Name of the attribute to remove.
    *
-   * @return {Component}
-   *         Returns itself; method can be chained.
-   *
    * @see [DOM API]{@link https://developer.mozilla.org/en-US/docs/Web/API/Element/removeAttribute}
    */
   removeAttribute(attribute) {
     Dom.removeAttribute(this.el_, attribute);
-    return this;
   }
 
   /**
@@ -1271,12 +837,11 @@ class Component {
    *        The width that you want to set postfixed with '%', 'px' or nothing.
    *
    * @param {boolean} [skipListeners]
-   *        Skip the resize event trigger
+   *        Skip the componentresize event trigger
    *
-   * @return {Component|number|string}
-   *         - The width when getting, zero if there is no width. Can be a string
+   * @return {number|string}
+   *         The width when getting, zero if there is no width. Can be a string
    *           postpixed with '%' or 'px'.
-   *         - Returns itself when setting; method can be chained.
    */
   width(num, skipListeners) {
     return this.dimension('width', num, skipListeners);
@@ -1290,12 +855,11 @@ class Component {
    *        The height that you want to set postfixed with '%', 'px' or nothing.
    *
    * @param {boolean} [skipListeners]
-   *        Skip the resize event trigger
+   *        Skip the componentresize event trigger
    *
-   * @return {Component|number|string}
-   *         - The width when getting, zero if there is no width. Can be a string
-   *           postpixed with '%' or 'px'.
-   *         - Returns itself when setting; method can be chained.
+   * @return {number|string}
+   *         The width when getting, zero if there is no width. Can be a string
+   *         postpixed with '%' or 'px'.
    */
   height(num, skipListeners) {
     return this.dimension('height', num, skipListeners);
@@ -1309,13 +873,11 @@ class Component {
    *
    * @param  {number|string} height
    *         Height to set the `Component`s element to.
-   *
-   * @return {Component}
-   *         Returns itself; method can be chained.
    */
   dimensions(width, height) {
-    // Skip resize listeners on width for optimization
-    return this.width(width, true).height(height);
+    // Skip componentresize listeners on width for optimization
+    this.width(width, true);
+    this.height(height);
   }
 
   /**
@@ -1332,7 +894,7 @@ class Component {
    * - If you want the computed style of the component, use {@link Component#currentWidth}
    *   and {@link {Component#currentHeight}
    *
-   * @fires Component#resize
+   * @fires Component#componentresize
    *
    * @param {string} widthOrHeight
    8        'width' or 'height'
@@ -1341,11 +903,10 @@ class Component {
    8         New dimension
    *
    * @param  {boolean} [skipListeners]
-   *         Skip resize event trigger
+   *         Skip componentresize event trigger
    *
-   * @return {Component}
-   *         - the dimension when getting or 0 if unset
-   *         - Returns itself when setting; method can be chained.
+   * @return {number}
+   *         The dimension when getting or 0 if unset
    */
   dimension(widthOrHeight, num, skipListeners) {
     if (num !== undefined) {
@@ -1368,14 +929,13 @@ class Component {
         /**
          * Triggered when a component is resized.
          *
-         * @event Component#resize
+         * @event Component#componentresize
          * @type {EventTarget~Event}
          */
-        this.trigger('resize');
+        this.trigger('componentresize');
       }
 
-      // Return component
-      return this;
+      return;
     }
 
     // Not setting a value, so getting it
@@ -1400,8 +960,9 @@ class Component {
   }
 
   /**
-   * Get the width or the height of the `Component` elements computed style. Uses
-   * `window.getComputedStyle`.
+   * Get the computed width or the height of the component's element.
+   *
+   * Uses `window.getComputedStyle`.
    *
    * @param {string} widthOrHeight
    *        A string containing 'width' or 'height'. Whichever one you want to get.
@@ -1428,7 +989,7 @@ class Component {
 
     // if the computed value is still 0, it's possible that the browser is lying
     // and we want to check the offset values.
-    // This code also runs on IE8 and wherever getComputedStyle doesn't exist.
+    // This code also runs wherever getComputedStyle doesn't exist.
     if (computedWidthOrHeight === 0) {
       const rule = `offset${toTitleCase(widthOrHeight)}`;
 
@@ -1452,11 +1013,13 @@ class Component {
    */
 
   /**
-   * Get an object that contains width and height values of the `Component`s
-   * computed style.
+   * Get an object that contains computed width and height values of the
+   * component's element.
+   *
+   * Uses `window.getComputedStyle`.
    *
    * @return {Component~DimensionObject}
-   *         The dimensions of the components element
+   *         The computed dimensions of the component's element.
    */
   currentDimensions() {
     return {
@@ -1466,23 +1029,41 @@ class Component {
   }
 
   /**
-   * Get the width of the `Component`s computed style. Uses `window.getComputedStyle`.
+   * Get the computed width of the component's element.
    *
-   * @return {number} width
-   *           The width of the `Component`s computed style.
+   * Uses `window.getComputedStyle`.
+   *
+   * @return {number}
+   *         The computed width of the component's element.
    */
   currentWidth() {
     return this.currentDimension('width');
   }
 
   /**
-   * Get the height of the `Component`s computed style. Uses `window.getComputedStyle`.
+   * Get the computed height of the component's element.
    *
-   * @return {number} height
-   *           The height of the `Component`s computed style.
+   * Uses `window.getComputedStyle`.
+   *
+   * @return {number}
+   *         The computed height of the component's element.
    */
   currentHeight() {
     return this.currentDimension('height');
+  }
+
+  /**
+   * Set the focus to this component
+   */
+  focus() {
+    this.el_.focus();
+  }
+
+  /**
+   * Remove the focus from this component
+   */
+  blur() {
+    this.el_.blur();
   }
 
   /**
@@ -1652,9 +1233,9 @@ class Component {
    *    {@link Component#dispose} gets called.
    * 2. The function callback will gets turned into a {@link Component~GenericCallback}
    *
-   * > Note: You can use `window.clearTimeout` on the id returned by this function. This
+   * > Note: You can't use `window.clearTimeout` on the id returned by this function. This
    *         will cause its dispose listener not to get cleaned up! Please use
-   *         {@link Component#clearTimeout} or {@link Component#dispose}.
+   *         {@link Component#clearTimeout} or {@link Component#dispose} instead.
    *
    * @param {Component~GenericCallback} fn
    *        The function that will be run after `timeout`.
@@ -1671,12 +1252,18 @@ class Component {
    * @see [Similar to]{@link https://developer.mozilla.org/en-US/docs/Web/API/WindowTimers/setTimeout}
    */
   setTimeout(fn, timeout) {
+    // declare as variables so they are properly available in timeout function
+    // eslint-disable-next-line
+    var timeoutId, disposeFn;
+
     fn = Fn.bind(this, fn);
 
-    const timeoutId = window.setTimeout(fn, timeout);
-    const disposeFn = function() {
-      this.clearTimeout(timeoutId);
-    };
+    timeoutId = window.setTimeout(() => {
+      this.off('dispose', disposeFn);
+      fn();
+    }, timeout);
+
+    disposeFn = () => this.clearTimeout(timeoutId);
 
     disposeFn.guid = `vjs-timeout-${timeoutId}`;
 
@@ -1737,9 +1324,7 @@ class Component {
 
     const intervalId = window.setInterval(fn, interval);
 
-    const disposeFn = function() {
-      this.clearInterval(intervalId);
-    };
+    const disposeFn = () => this.clearInterval(intervalId);
 
     disposeFn.guid = `vjs-interval-${intervalId}`;
 
@@ -1776,6 +1361,89 @@ class Component {
   }
 
   /**
+   * Queues up a callback to be passed to requestAnimationFrame (rAF), but
+   * with a few extra bonuses:
+   *
+   * - Supports browsers that do not support rAF by falling back to
+   *   {@link Component#setTimeout}.
+   *
+   * - The callback is turned into a {@link Component~GenericCallback} (i.e.
+   *   bound to the component).
+   *
+   * - Automatic cancellation of the rAF callback is handled if the component
+   *   is disposed before it is called.
+   *
+   * @param  {Component~GenericCallback} fn
+   *         A function that will be bound to this component and executed just
+   *         before the browser's next repaint.
+   *
+   * @return {number}
+   *         Returns an rAF ID that gets used to identify the timeout. It can
+   *         also be used in {@link Component#cancelAnimationFrame} to cancel
+   *         the animation frame callback.
+   *
+   * @listens Component#dispose
+   * @see [Similar to]{@link https://developer.mozilla.org/en-US/docs/Web/API/window/requestAnimationFrame}
+   */
+  requestAnimationFrame(fn) {
+    // declare as variables so they are properly available in rAF function
+    // eslint-disable-next-line
+    var id, disposeFn;
+
+    if (this.supportsRaf_) {
+      fn = Fn.bind(this, fn);
+
+      id = window.requestAnimationFrame(() => {
+        this.off('dispose', disposeFn);
+        fn();
+      });
+
+      disposeFn = () => this.cancelAnimationFrame(id);
+
+      disposeFn.guid = `vjs-raf-${id}`;
+      this.on('dispose', disposeFn);
+
+      return id;
+    }
+
+    // Fall back to using a timer.
+    return this.setTimeout(fn, 1000 / 60);
+  }
+
+  /**
+   * Cancels a queued callback passed to {@link Component#requestAnimationFrame}
+   * (rAF).
+   *
+   * If you queue an rAF callback via {@link Component#requestAnimationFrame},
+   * use this function instead of `window.cancelAnimationFrame`. If you don't,
+   * your dispose listener will not get cleaned up until {@link Component#dispose}!
+   *
+   * @param {number} id
+   *        The rAF ID to clear. The return value of {@link Component#requestAnimationFrame}.
+   *
+   * @return {number}
+   *         Returns the rAF ID that was cleared.
+   *
+   * @see [Similar to]{@link https://developer.mozilla.org/en-US/docs/Web/API/window/cancelAnimationFrame}
+   */
+  cancelAnimationFrame(id) {
+    if (this.supportsRaf_) {
+      window.cancelAnimationFrame(id);
+
+      const disposeFn = function() {};
+
+      disposeFn.guid = `vjs-raf-${id}`;
+
+      this.off('dispose', disposeFn);
+
+      return id;
+    }
+
+    // Fall back to using a timer.
+    return this.clearTimeout(id);
+  }
+
+  /**
    * Register a `Component` with `videojs` given the name and the component.
    *
    * > NOTE: {@link Tech}s should not be registered as a `Component`. {@link Tech}s
@@ -1788,15 +1456,34 @@ class Component {
    * @param {string} name
    *        The name of the `Component` to register.
    *
-   * @param {Component} comp
+   * @param {Component} ComponentToRegister
    *        The `Component` class to register.
    *
    * @return {Component}
    *         The `Component` that was registered.
    */
-  static registerComponent(name, comp) {
-    if (!name) {
-      return;
+  static registerComponent(name, ComponentToRegister) {
+    if (typeof name !== 'string' || !name) {
+      throw new Error(`Illegal component name, "${name}"; must be a non-empty string.`);
+    }
+
+    const Tech = Component.getComponent('Tech');
+
+    // We need to make sure this check is only done if Tech has been registered.
+    const isTech = Tech && Tech.isTech(ComponentToRegister);
+    const isComp = Component === ComponentToRegister ||
+      Component.prototype.isPrototypeOf(ComponentToRegister.prototype);
+
+    if (isTech || !isComp) {
+      let reason;
+
+      if (isTech) {
+        reason = 'techs must be registered using Tech.registerTech()';
+      } else {
+        reason = 'must be a Component subclass';
+      }
+
+      throw new Error(`Illegal component, "${name}"; ${reason}.`);
     }
 
     name = toTitleCase(name);
@@ -1805,23 +1492,26 @@ class Component {
       Component.components_ = {};
     }
 
-    if (name === 'Player' && Component.components_[name]) {
-      const Player = Component.components_[name];
+    const Player = Component.getComponent('Player');
+
+    if (name === 'Player' && Player && Player.players) {
+      const players = Player.players;
+      const playerNames = Object.keys(players);
 
       // If we have players that were disposed, then their name will still be
       // in Players.players. So, we must loop through and verify that the value
       // for each item is not null. This allows registration of the Player component
       // after all players have been disposed or before any were created.
-      if (Player.players &&
-          Object.keys(Player.players).length > 0 &&
-          Object.keys(Player.players).map((playerName) => Player.players[playerName]).every(Boolean)) {
-        throw new Error('Can not register Player component after player has been created');
+      if (players &&
+          playerNames.length > 0 &&
+          playerNames.map((pname) => players[pname]).every(Boolean)) {
+        throw new Error('Can not register Player component after player has been created.');
       }
     }
 
-    Component.components_[name] = comp;
+    Component.components_[name] = ComponentToRegister;
 
-    return comp;
+    return ComponentToRegister;
   }
 
   /**
@@ -1848,70 +1538,20 @@ class Component {
     if (Component.components_ && Component.components_[name]) {
       return Component.components_[name];
     }
-
-    if (window && window.videojs && window.videojs[name]) {
-      log.warn(`The ${name} component was added to the videojs object when it should be registered using videojs.registerComponent(name, component)`);
-
-      return window.videojs[name];
-    }
-  }
-
-  /**
-   * Sets up the constructor using the supplied init method or uses the init of the
-   * parent object.
-   *
-   * @param {Object} [props={}]
-   *        An object of properties.
-   *
-   * @return {Object}
-   *         the extended object.
-   *
-   * @deprecated since version 5
-   */
-  static extend(props) {
-    props = props || {};
-
-    log.warn('Component.extend({}) has been deprecated, ' +
-      ' use videojs.extend(Component, {}) instead'
-    );
-
-    // Set up the constructor using the supplied init method
-    // or using the init of the parent object
-    // Make sure to check the unobfuscated version for external libs
-    const init = props.init || props.init || this.prototype.init ||
-                 this.prototype.init || function() {};
-    // In Resig's simple class inheritance (previously used) the constructor
-    //  is a function that calls `this.init.apply(arguments)`
-    // However that would prevent us from using `ParentObject.call(this);`
-    //  in a Child constructor because the `this` in `this.init`
-    //  would still refer to the Child and cause an infinite loop.
-    // We would instead have to do
-    //    `ParentObject.prototype.init.apply(this, arguments);`
-    //  Bleh. We're not creating a _super() function, so it's good to keep
-    //  the parent constructor reference simple.
-    const subObj = function() {
-      init.apply(this, arguments);
-    };
-
-    // Inherit from this object's prototype
-    subObj.prototype = Object.create(this.prototype);
-    // Reset the constructor property for subObj otherwise
-    // instances of subObj would have the constructor of the parent Object
-    subObj.prototype.constructor = subObj;
-
-    // Make the class extendable
-    subObj.extend = Component.extend;
-
-    // Extend subObj's prototype with functions and other properties from props
-    for (const name in props) {
-      if (props.hasOwnProperty(name)) {
-        subObj.prototype[name] = props[name];
-      }
-    }
-
-    return subObj;
   }
 }
 
+/**
+ * Whether or not this component supports `requestAnimationFrame`.
+ *
+ * This is exposed primarily for testing purposes.
+ *
+ * @private
+ * @type {Boolean}
+ */
+Component.prototype.supportsRaf_ = typeof window.requestAnimationFrame === 'function' &&
+  typeof window.cancelAnimationFrame === 'function';
+
 Component.registerComponent('Component', Component);
+
 export default Component;

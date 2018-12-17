@@ -1,7 +1,6 @@
 import {VideoTrackKind} from './track-enums';
 import Track from './track';
 import merge from '../utils/merge-options';
-import * as browser from '../utils/browser.js';
 
 /**
  * A representation of a single `VideoTrack`.
@@ -37,27 +36,20 @@ class VideoTrack extends Track {
       kind: VideoTrackKind[options.kind] || ''
     });
 
-    // on IE8 this will be a document element
-    // for every other browser this will be a normal object
-    const track = super(settings);
+    super(settings);
+
     let selected = false;
 
-    if (browser.IS_IE8) {
-      for (const prop in VideoTrack.prototype) {
-        if (prop !== 'constructor') {
-          track[prop] = VideoTrack.prototype[prop];
-        }
-      }
-    }
-
     /**
+     * @memberof VideoTrack
      * @member {boolean} selected
      *         If this `VideoTrack` is selected or not. When setting this will
      *         fire {@link VideoTrack#selectedchange} if the state of selected changed.
+     * @instance
      *
      * @fires VideoTrack#selectedchange
      */
-    Object.defineProperty(track, 'selected', {
+    Object.defineProperty(this, 'selected', {
       get() {
         return selected;
       },
@@ -86,10 +78,8 @@ class VideoTrack extends Track {
     // set selected to that true value otherwise
     // we keep it false
     if (settings.selected) {
-      track.selected = settings.selected;
+      this.selected = settings.selected;
     }
-
-    return track;
   }
 }
 

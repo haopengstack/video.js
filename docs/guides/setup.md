@@ -1,27 +1,31 @@
 # Video.js Setup
-<!-- START doctoc generated TOC please keep comment here to allow auto update -->
-<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
+## Table of Contents
 
-- [Getting Video.js](#getting-videojs)
-- [Creating a Player](#creating-a-player)
-  - [Automatic Setup](#automatic-setup)
-  - [Manual Setup](#manual-setup)
-- [Options](#options)
-  - [Global Defaults](#global-defaults)
-  - [A Note on `<video>` Tag Attributes](#a-note-on-video-tag-attributes)
-- [Player Readiness](#player-readiness)
-
-<!-- END doctoc generated TOC please keep comment here to allow auto update -->
+* [Getting Video.js](#getting-videojs)
+* [Creating a Player](#creating-a-player)
+  * [Automatic Setup](#automatic-setup)
+  * [Manual Setup](#manual-setup)
+  * [Getting References to Players](#getting-references-to-players)
+    * [Using videojs](#using-videojs)
+    * [Using videojs.getPlayer()](#using-videojsgetplayer)
+    * [Using videojs.getPlayers() or videojs.players](#using-videojsgetplayers-or-videojsplayers)
+* [Options](#options)
+  * [Global Defaults](#global-defaults)
+  * [A Note on &lt;video> Tag Attributes](#a-note-on-video-tag-attributes)
+* [Player Readiness](#player-readiness)
+* [Advanced Player Workflows](#advanced-player-workflows)
 
 ## Getting Video.js
-Video.js is officially available via CDN, npm, and Bower.
+
+Video.js is officially available via CDN and npm.
 
 Video.js works out of the box with not only HTML `<script>` and `<link>` tags, but also all major bundlers/packagers/builders, such as Browserify, Node, WebPack, etc.
 
 Please refer to the [Getting Started][getting-started] document for details.
 
 ## Creating a Player
+
 > **Note:** Video.js works with `<video>` _and_ `<audio>` elements, but for simplicity we'll refer only to `<video>` elements going forward.
 
 Once you have Video.js [loaded on your page][getting-started], you're ready to create a player!
@@ -37,7 +41,10 @@ Video.js supports all attributes of the `<video>` element (such as `controls`, `
 </video>
 ```
 
+For a high-level overview of all the various embed options, check out the [embeds page](/docs/guides/embeds.md), then follow the rest of this page.
+
 ### Automatic Setup
+
 By default, when your web page finishes loading, Video.js will scan for media elements that have the `data-setup` attribute. The `data-setup` attribute is used to pass options to Video.js. A minimal example looks like this:
 
 ```html
@@ -50,6 +57,7 @@ By default, when your web page finishes loading, Video.js will scan for media el
 > **Note:** You _must_ use single-quotes with `data-setup` as it is expected to contain JSON.
 
 ### Manual Setup
+
 On the modern web, a `<video>` element often does not exist when the page finishes loading. In these cases, automatic setup is not possible, but manual setup is available via [the `videojs` function][videojs].
 
 One way to call this function is by providing it a string matching a `<video>` element's `id` attribute:
@@ -78,8 +86,31 @@ However, using an `id` attribute isn't always practical; so, the `videojs` funct
 videojs(document.querySelector('.video-js'));
 ```
 
+### Getting References to Players
+
+Once players are created, Video.js keeps track of them internally. There are a few ways to get references to pre-existing players.
+
+#### Using `videojs`
+
+Calling `videojs()` with the ID of element of an already-existing player will return that player and will not create another one.
+
+If there is no player matching the argument, it will attempt to create one.
+
+#### Using `videojs.getPlayer()`
+
+Sometimes, you want to get a reference to a player without the potential side effects of calling `videojs()`. This can be acheived by calling `videojs.getPlayer()` with either a string matching the element's ID or the element itself.
+
+#### Using `videojs.getPlayers()` or `videojs.players`
+
+The `videojs.players` property exposes all known players. The method, `videojs.getPlayers()` simply returns the same object.
+
+Players are stored on this object with keys matching their IDs.
+
+> **Note:** A player created from an element without an ID will be assigned an automatically-generated ID.
+
 ## Options
-> **Note:** This guide only covers how to pass options during player setup. For a complete reference on _all_ available options, see the [options guide](options.md).
+
+> **Note:** This guide only covers how to pass options during player setup. For a complete reference on _all_ available options, see the [options guide](/docs/guides/options.md).
 
 There are three ways to pass options to Video.js. Because Video.js decorates an HTML5 `<video>` element, many of the options available are also available as [standard `<video>` tag attributes][video-attrs]:
 
@@ -93,6 +124,8 @@ Alternatively, you can use the `data-setup` attribute to pass options as [JSON][
 <video data-setup='{"controls": true, "autoplay": false, "preload": "auto"}'...>
 ```
 
+> **Note:** You _must_ use single-quotes around the value of `data-setup` as it contains a JSON string which must use double quotes.
+
 Finally, if you're not using the `data-setup` attribute to trigger the player setup, you can pass in an object of player options as the second argument to the `videojs` function:
 
 ```js
@@ -103,7 +136,10 @@ videojs('my-player', {
 });
 ```
 
+> **Note:** Do not use both `data-setup` and an options object.
+
 ### Global Defaults
+
 Default options for all players can be found at `videojs.options` and can be changed directly. For example, to set `{autoplay: true}` for all future players:
 
 ```js
@@ -133,6 +169,7 @@ These are correct:
 ```
 
 ## Player Readiness
+
 Because Video.js techs have the potential to be loaded asynchronously, it isn't always safe to interact with a player immediately upon setup. For this reason, Video.js players have a concept of "readiness" which will be familiar to anyone who has used jQuery before.
 
 Essentially, any number of ready callbacks can be defined for a Video.js player. There are three ways to pass these callbacks. In each example, we'll add an identical class to the player:
@@ -166,16 +203,26 @@ player.on('ready', function() {
 });
 ```
 
-In each case, the callback is called asynchronously - _even if the player is already ready!_
+In each case, the callback is called asynchronously.
+
+An important distinction between the above methods is that adding an listener for `ready` with `on()` _must_ be done before the player is ready. With `player.ready()`, the function is called immediately if the player is already ready.
 
 ## Advanced Player Workflows
-For a discussion of more advanced player workflows, see the [player workflows guide](player-workflows.md).
 
+For a discussion of more advanced player workflows, see the [player workflows guide][player-workflows].
+
+[player-workflows]: /docs/guides/player-workflows.md
 
 [boolean-attrs]: https://www.w3.org/TR/2011/WD-html5-20110525/common-microsyntaxes.html#boolean-attributes
-[getting-started]: http://videojs.com/getting-started/
-[json]: http://json.org/example.html
+
+[getting-started]: https://videojs.com/getting-started/
+
+[json]: https://json.org/example.html
+
 [video-attrs]: https://developer.mozilla.org/en-US/docs/Web/HTML/Element/video#Attributes
-[videojs]: http://docs.videojs.com/docs/api/video.html
+
+[videojs]: https://docs.videojs.com/module-videojs.html
+
 [w3c-media-events]: https://www.w3.org/2010/05/video/mediaevents.html
-[w3c-video]: http://www.w3.org/TR/html5/embedded-content-0.html#the-video-element
+
+[w3c-video]: https://www.w3.org/TR/html5/embedded-content-0.html#the-video-element

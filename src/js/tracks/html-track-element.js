@@ -2,12 +2,11 @@
  * @file html-track-element.js
  */
 
-import * as browser from '../utils/browser.js';
-import document from 'global/document';
 import EventTarget from '../event-target';
 import TextTrack from '../tracks/text-track';
 
 /**
+ * @memberof HTMLTrackElement
  * @typedef {HTMLTrackElement~ReadyState}
  * @enum {number}
  */
@@ -62,43 +61,40 @@ class HTMLTrackElement extends EventTarget {
     super();
 
     let readyState;
-    let trackElement = this; // eslint-disable-line
-
-    if (browser.IS_IE8) {
-      trackElement = document.createElement('custom');
-
-      for (const prop in HTMLTrackElement.prototype) {
-        if (prop !== 'constructor') {
-          trackElement[prop] = HTMLTrackElement.prototype[prop];
-        }
-      }
-    }
 
     const track = new TextTrack(options);
 
-    trackElement.kind = track.kind;
-    trackElement.src = track.src;
-    trackElement.srclang = track.language;
-    trackElement.label = track.label;
-    trackElement.default = track.default;
+    this.kind = track.kind;
+    this.src = track.src;
+    this.srclang = track.language;
+    this.label = track.label;
+    this.default = track.default;
 
-    /**
-     * @member {HTMLTrackElement~ReadyState} readyState
-     *         The current ready state of the track element.
-     */
-    Object.defineProperty(trackElement, 'readyState', {
-      get() {
-        return readyState;
-      }
-    });
+    Object.defineProperties(this, {
 
-    /**
-     * @member {TextTrack} track
-     *         The underlying TextTrack object.
-     */
-    Object.defineProperty(trackElement, 'track', {
-      get() {
-        return track;
+      /**
+       * @memberof HTMLTrackElement
+       * @member {HTMLTrackElement~ReadyState} readyState
+       *         The current ready state of the track element.
+       * @instance
+       */
+      readyState: {
+        get() {
+          return readyState;
+        }
+      },
+
+      /**
+       * @memberof HTMLTrackElement
+       * @member {TextTrack} track
+       *         The underlying TextTrack object.
+       * @instance
+       *
+       */
+      track: {
+        get() {
+          return track;
+        }
       }
     });
 
@@ -108,18 +104,14 @@ class HTMLTrackElement extends EventTarget {
      * @listens TextTrack#loadeddata
      * @fires HTMLTrackElement#load
      */
-    track.addEventListener('loadeddata', function() {
+    track.addEventListener('loadeddata', () => {
       readyState = LOADED;
 
-      trackElement.trigger({
+      this.trigger({
         type: 'load',
-        target: trackElement
+        target: this
       });
     });
-
-    if (browser.IS_IE8) {
-      return trackElement;
-    }
   }
 }
 

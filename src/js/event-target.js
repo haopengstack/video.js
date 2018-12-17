@@ -2,6 +2,7 @@
  * @file src/js/event-target.js
  */
 import * as Events from './utils/events.js';
+import window from 'global/window';
 
 /**
  * `EventTarget` is a class that can have the same API as the DOM `EventTarget`. It
@@ -48,20 +49,6 @@ EventTarget.prototype.allowedEvents_ = {};
  * Adds an `event listener` to an instance of an `EventTarget`. An `event listener` is a
  * function that will get called when an event with a certain name gets triggered.
  *
- * ```js
- *   var foo = new EventTarget();
- *   var handleBar = function() {
- *     console.log('bar was triggered');
- *   };
- *
- *   foo.on('bar', handleBar);
- *
- *   // This causes any `event listeners` for the `bar` event to get called
- *   // see {@link EventTarget#trigger} for more information
- *   foo.trigger('bar');
- *   // logs 'bar was triggered'
- * ```
- *
  * @param {string|string[]} type
  *        An event name or an array of event names.
  *
@@ -92,26 +79,6 @@ EventTarget.prototype.addEventListener = EventTarget.prototype.on;
  * This makes it so that the `event listener` will no longer get called when the
  * named event happens.
  *
- * ```js
- *   var foo = new EventTarget();
- *   var handleBar = function() {
- *     console.log('bar was triggered');
- *   };
- *
- *   // adds an `event listener` for the `bar` event
- *   // see {@link EventTarget#on} for more info
- *   foo.on('bar', handleBar);
- *
- *   // runs all `event listeners` for the `bar` event
- *   // see {@link EventTarget#trigger} for more info
- *   foo.trigger('bar');
- *   // logs 'bar was triggered'
- *
- *   foo.off('bar', handleBar);
- *   foo.trigger('bar');
- *   // does nothing
- * ```
- *
  * @param {string|string[]} type
  *        An event name or an array of event names.
  *
@@ -135,39 +102,6 @@ EventTarget.prototype.removeEventListener = EventTarget.prototype.off;
  * This function will add an `event listener` that gets triggered only once. After the
  * first trigger it will get removed. This is like adding an `event listener`
  * with {@link EventTarget#on} that calls {@link EventTarget#off} on itself.
- *
- * Using {@link EventTarget#on} and {@link EventTarget#off} to mimic {@link EventTarget#one}
- * ```js
- *   var foo = new EventTarget();
- *   var handleBar = function() {
- *     console.log('bar was triggered');
- *     // after the first trigger remove this handler
- *     foo.off('bar', handleBar);
- *   };
- *
- *   foo.on('bar', handleBar);
- *   foo.trigger('bar');
- *   // logs 'bar was triggered'
- *
- *   foo.trigger('bar');
- *   // does nothing
- * ```
- *
- * Using {@link EventTarget#one}
- * ```js
- *   var foo = new EventTarget();
- *   var handleBar = function() {
- *     console.log('bar was triggered');
- *   };
- *
- *   // removed after the first trigger
- *   foo.one('bar', handleBar);
- *   foo.trigger('bar');
- *   // logs 'bar was triggered'
- *
- *   foo.trigger('bar');
- *   // does nothing
- * ```
  *
  * @param {string|string[]} type
  *        An event name or an array of event names.
@@ -197,23 +131,6 @@ EventTarget.prototype.one = function(type, fn) {
  * 'click' is in `EventTarget.allowedEvents_`, so, trigger will attempt to call
  * `onClick` if it exists.
  *
- * ```js
- *   var foo = new EventTarget();
- *   var handleBar = function() {
- *     console.log('bar was triggered');
- *   };
- *
- *   foo.on('bar', handleBar);
- *   foo.trigger('bar');
- *   // logs 'bar was triggered'
- *
- *   foo.trigger('bar');
- *   // logs 'bar was triggered'
- *
- *   foo.trigger('foo');
- *   // does nothing
- * ```
- *
  * @param {string|EventTarget~Event|Object} event
  *        The name of the event, an `Event`, or an object with a key of type set to
  *        an event name.
@@ -241,5 +158,39 @@ EventTarget.prototype.trigger = function(event) {
  * @see {@link EventTarget#trigger}
  */
 EventTarget.prototype.dispatchEvent = EventTarget.prototype.trigger;
+
+let EVENT_MAP;
+
+EventTarget.prototype.queueTrigger = function(event) {
+  // only set up EVENT_MAP if it'll be used
+  if (!EVENT_MAP) {
+    EVENT_MAP = new Map();
+  }
+
+  const type = event.type || event;
+  let map = EVENT_MAP.get(this);
+
+  if (!map) {
+    map = new Map();
+    EVENT_MAP.set(this, map);
+  }
+
+  const oldTimeout = map.get(type);
+
+  map.delete(type);
+  window.clearTimeout(oldTimeout);
+
+  const timeout = window.setTimeout(() => {
+    // if we cleared out all timeouts for the current target, delete its map
+    if (map.size === 0) {
+      map = null;
+      EVENT_MAP.delete(this);
+    }
+
+    this.trigger(event);
+  }, 0);
+
+  map.set(type, timeout);
+};
 
 export default EventTarget;

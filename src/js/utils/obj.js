@@ -31,6 +31,22 @@
 const toString = Object.prototype.toString;
 
 /**
+ * Get the keys of an Object
+ *
+ * @param {Object}
+ *        The Object to get the keys from
+ *
+ * @return {string[]}
+ *         An array of the keys from the object. Returns an empty array if the
+ *         object passed in was invalid or had no keys.
+ *
+ * @private
+ */
+const keys = function(object) {
+  return isObject(object) ? Object.keys(object) : [];
+};
+
+/**
  * Array-like iteration for objects.
  *
  * @param {Object} object
@@ -40,7 +56,7 @@ const toString = Object.prototype.toString;
  *        The callback function which is called for each key in the object.
  */
 export function each(object, fn) {
-  Object.keys(object).forEach(key => fn(object[key], key));
+  keys(object).forEach(key => fn(object[key], key));
 }
 
 /**
@@ -61,8 +77,7 @@ export function each(object, fn) {
  *         The final accumulated value.
  */
 export function reduce(object, fn, initial = 0) {
-  return Object.keys(object).reduce(
-    (accum, key) => fn(accum, object[key], key), initial);
+  return keys(object).reduce((accum, key) => fn(accum, object[key], key), initial);
 }
 
 /**
@@ -98,7 +113,7 @@ export function assign(target, ...sources) {
  * results in `'object'`.
  *
  * @param  {Object} value
- * @return {Boolean}
+ * @return {boolean}
  */
 export function isObject(value) {
   return !!value && typeof value === 'object';
@@ -109,7 +124,7 @@ export function isObject(value) {
  * direct instance of `Object`.
  *
  * @param  {Object} value
- * @return {Boolean}
+ * @return {boolean}
  */
 export function isPlain(value) {
   return isObject(value) &&

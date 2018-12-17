@@ -7,7 +7,7 @@ const TestHelpers = {
     const videoTag = document.createElement('video');
 
     videoTag.id = 'example_1';
-    videoTag.className = 'video-js vjs-default-skin';
+    videoTag.className = 'video-js';
     return videoTag;
   },
 
@@ -21,7 +21,11 @@ const TestHelpers = {
     playerOptions = playerOptions || {};
     playerOptions.techOrder = playerOptions.techOrder || ['techFaker'];
 
-    return new Player(videoTag, playerOptions);
+    const player = new Player(videoTag, playerOptions);
+
+    player.middleware_ = [player.tech_];
+
+    return player;
   },
 
   getComputedStyle(el, rule) {
@@ -29,15 +33,7 @@ const TestHelpers = {
       return document.defaultView.getComputedStyle(el, null).getPropertyValue(rule);
     }
 
-    // IE8
-    if (el.currentStyle) {
-      if (rule === 'width' || rule === 'height') {
-        // return clientWidth or clientHeight instead for better accuracy
-        rule = 'client' + rule.substr(0, 1).toUpperCase() + rule.substr(1);
-        return el[rule] + 'px';
-      }
-      return el.currentStyle[rule];
-    }
+    return '';
   },
 
   /**
@@ -54,14 +50,14 @@ const TestHelpers = {
    * @param  {Array} [spec.classes]
    *         An array of classes that are expected on the element.
    *
-   * @param  {String} [spec.innerHTML]
+   * @param  {string} [spec.innerHTML]
    *         A string of text/html that is expected as the content of element.
    *         Both values will be trimmed, but remains case-sensitive.
    *
    * @param  {Object} [spec.props]
    *         An object mapping property names (keys) to strict values.
    *
-   * @param  {String} [spec.tagName]
+   * @param  {string} [spec.tagName]
    *         A string (case-insensitive) representing that element's tagName.
    *
    * @return {Function}
@@ -108,7 +104,7 @@ const TestHelpers = {
         const msg = `el should have the "${c}" class in its ` +
                     `className, which is "${el.className}"`;
 
-        assert.ok(Dom.hasElClass(el, c), msg);
+        assert.ok(Dom.hasClass(el, c), msg);
       });
 
       props.forEach(p => {

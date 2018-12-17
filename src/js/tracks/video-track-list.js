@@ -2,8 +2,6 @@
  * @file video-track-list.js
  */
 import TrackList from './track-list';
-import * as browser from '../utils/browser.js';
-import document from 'global/document';
 
 /**
  * Un-select all other {@link VideoTrack}s that are selected.
@@ -18,7 +16,7 @@ import document from 'global/document';
  */
 const disableOthers = function(list, track) {
   for (let i = 0; i < list.length; i++) {
-    if (track.id === list[i].id) {
+    if (!Object.keys(list[i]).length || track.id === list[i].id) {
       continue;
     }
     // another video track is enabled, disable it
@@ -41,8 +39,6 @@ class VideoTrackList extends TrackList {
    *        A list of `VideoTrack` to instantiate the list with.
    */
   constructor(tracks = []) {
-    let list;
-
     // make sure only 1 track is enabled
     // sorted from last index to first index
     for (let i = tracks.length - 1; i >= 0; i--) {
@@ -52,30 +48,14 @@ class VideoTrackList extends TrackList {
       }
     }
 
-    // IE8 forces us to implement inheritance ourselves
-    // as it does not support Object.defineProperty properly
-    if (browser.IS_IE8) {
-      list = document.createElement('custom');
-      for (const prop in TrackList.prototype) {
-        if (prop !== 'constructor') {
-          list[prop] = TrackList.prototype[prop];
-        }
-      }
-      for (const prop in VideoTrackList.prototype) {
-        if (prop !== 'constructor') {
-          list[prop] = VideoTrackList.prototype[prop];
-        }
-      }
-    }
-
-    list = super(tracks, list);
-    list.changing_ = false;
+    super(tracks);
+    this.changing_ = false;
 
     /**
      * @member {number} VideoTrackList#selectedIndex
      *         The current index of the selected {@link VideoTrack`}.
      */
-    Object.defineProperty(list, 'selectedIndex', {
+    Object.defineProperty(this, 'selectedIndex', {
       get() {
         for (let i = 0; i < this.length; i++) {
           if (this[i].selected) {
@@ -86,8 +66,6 @@ class VideoTrackList extends TrackList {
       },
       set() {}
     });
-
-    return list;
   }
 
   /**
@@ -97,14 +75,13 @@ class VideoTrackList extends TrackList {
    *        The VideoTrack to add to the list
    *
    * @fires TrackList#addtrack
-   * @private
    */
-  addTrack_(track) {
+  addTrack(track) {
     if (track.selected) {
       disableOthers(this, track);
     }
 
-    super.addTrack_(track);
+    super.addTrack(track);
     // native tracks don't have this
     if (!track.addEventListener) {
       return;
@@ -124,31 +101,6 @@ class VideoTrackList extends TrackList {
       this.trigger('change');
     });
   }
-
-  /**
-   * Add a {@link VideoTrack} to the `VideoTrackList`.
-   *
-   * @param {VideoTrack} track
-   *        The VideoTrack to add to the list
-   *
-   * @fires TrackList#addtrack
-   */
-  addTrack(track) {
-    this.addTrack_(track);
-  }
-
-  /**
-   * Remove a {@link VideoTrack} to the `VideoTrackList`.
-   *
-   * @param {VideoTrack} track
-   *        The VideoTrack to remove from the list.
-   *
-   * @fires TrackList#removetrack
-   */
-  removeTrack(track) {
-    super.removeTrack_(track);
-  }
-
 }
 
 export default VideoTrackList;

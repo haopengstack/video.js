@@ -2,8 +2,6 @@
  * @file track-list.js
  */
 import EventTarget from '../event-target';
-import * as browser from '../utils/browser.js';
-import document from 'global/document';
 
 /**
  * Common functionaliy between {@link TextTrackList}, {@link AudioTrackList}, and
@@ -18,44 +16,28 @@ class TrackList extends EventTarget {
    * @param {Track[]} tracks
    *        A list of tracks to initialize the list with.
    *
-   * @param {Object} [list]
-   *        The child object with inheritance done manually for ie8.
-   *
    * @abstract
    */
-  constructor(tracks = [], list = null) {
+  constructor(tracks = []) {
     super();
-    if (!list) {
-      list = this; // eslint-disable-line
-      if (browser.IS_IE8) {
-        list = document.createElement('custom');
-        for (const prop in TrackList.prototype) {
-          if (prop !== 'constructor') {
-            list[prop] = TrackList.prototype[prop];
-          }
-        }
-      }
-    }
 
-    list.tracks_ = [];
+    this.tracks_ = [];
 
     /**
+     * @memberof TrackList
      * @member {number} length
      *         The current number of `Track`s in the this Trackist.
+     * @instance
      */
-    Object.defineProperty(list, 'length', {
+    Object.defineProperty(this, 'length', {
       get() {
         return this.tracks_.length;
       }
     });
 
     for (let i = 0; i < tracks.length; i++) {
-      list.addTrack_(tracks[i]);
+      this.addTrack(tracks[i]);
     }
-
-    // must return the object, as for ie8 it will not be this
-    // but a reference to a document object
-    return list;
   }
 
   /**
@@ -65,9 +47,8 @@ class TrackList extends EventTarget {
    *        The audio, video, or text track to add to the list.
    *
    * @fires TrackList#addtrack
-   * @private
    */
-  addTrack_(track) {
+  addTrack(track) {
     const index = this.tracks_.length;
 
     if (!('' + index in this)) {
@@ -99,13 +80,12 @@ class TrackList extends EventTarget {
   /**
    * Remove a {@link Track} from the `TrackList`
    *
-   * @param {Track} track
+   * @param {Track} rtrack
    *        The audio, video, or text track to remove from the list.
    *
    * @fires TrackList#removetrack
-   * @private
    */
-  removeTrack_(rtrack) {
+  removeTrack(rtrack) {
     let track;
 
     for (let i = 0, l = this.length; i < l; i++) {
@@ -142,7 +122,7 @@ class TrackList extends EventTarget {
   /**
    * Get a Track from the TrackList by a tracks id
    *
-   * @param {String} id - the id of the track to get
+   * @param {string} id - the id of the track to get
    * @method getTrackById
    * @return {Track}
    * @private
@@ -173,7 +153,7 @@ class TrackList extends EventTarget {
 /**
  * Events that can be called with on + eventName. See {@link EventHandler}.
  *
- * @property
+ * @property {Object} TrackList#allowedEvents_
  * @private
  */
 TrackList.prototype.allowedEvents_ = {
